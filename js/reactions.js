@@ -125,6 +125,11 @@ export class ReactionEngine {
         if (r.bInto !== -1) { grid.convert(j, r.bInto, false); }
         if (r.bTemp !== undefined) grid.temp[j] = r.bTemp;
         if (r.heat) { grid.temp[i] += r.heat; grid.temp[j] += r.heat; }
+        // absolute-zero floor: endothermic (cryo) heat bumps must never drive a
+        // cell below -273.15C. Reaction writes bypass the thermal-pass clamp, so
+        // enforce it right here at the source.
+        if (grid.temp[i] < -273.15) grid.temp[i] = -273.15;
+        if (grid.temp[j] < -273.15) grid.temp[j] = -273.15;
         return 1;
       }
     }
