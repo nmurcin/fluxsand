@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Fluxsand — a thermodynamic powder toy</title>
+<meta name="description" content="A browser powder toy where every grain carries real temperature and energy. Paint sand, water, lava, oil, ice and metal, then watch a physically-grounded heat solver make fire spread, water boil into steam, lava freeze to rock, and metal glow and melt — at 60fps on a pure-Canvas cellular automaton." />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <aside id="left">
+    <div class="brand">
+      <span class="logo">✳</span>
+      <div>
+        <h1>Fluxsand</h1>
+        <p class="tag">thermodynamic powder toy</p>
+      </div>
+    </div>
+
+    <div class="section-title">Materials</div>
+    <div id="palette" class="palette"></div>
+
+    <div class="section-title">Brush</div>
+    <div class="brush-row">
+      <input id="brush" type="range" min="0" max="20" value="6" />
+      <span class="hint">[ / ] to resize</span>
+    </div>
+
+    <div class="section-title">View</div>
+    <div class="btn-row">
+      <button data-overlay="normal" class="pill">Normal</button>
+      <button data-overlay="thermal" class="pill">Thermal (F)</button>
+      <button data-overlay="ascii" class="pill">ASCII (G)</button>
+    </div>
+
+    <div class="section-title">Controls</div>
+    <div class="btn-row">
+      <button id="pauseBtn" class="pill">Pause (␣)</button>
+      <button id="stepBtn" class="pill">Step (.)</button>
+      <button id="clearBtn" class="pill danger">Clear (C)</button>
+    </div>
+
+    <div class="section-title">Scenarios</div>
+    <div id="gallery" class="gallery"></div>
+
+    <div class="foot">
+      <p>Drop <b>water</b> on <b>lava</b> → obsidian + steam.<br/>
+         Ignite <b>oil</b> beside <b>ice</b> → watch the fire stall at water.</p>
+    </div>
+  </aside>
+
+  <main id="stage">
+    <canvas id="c" width="1280" height="800"></canvas>
+    <div id="hud" class="hud"></div>
+    <div id="overlay-badge" class="overlay-badge"></div>
+  </main>
+
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
