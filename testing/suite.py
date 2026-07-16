@@ -410,6 +410,244 @@ def test_overlays_dont_crash(c):
     return (name, True, f"cycled {[s[0] for s in seen]}; __STATE__.overlay tracked each; no new errors")
 
 
+NEW_SCENARIOS = ["CryoLab", "PowderKeg", "ChemLab", "ThermiteFoundry", "RubeGoldberg"]
+
+
+def test_new_scenarios_load(c):
+    name = "11 new scenarios load: 5 expansion scenes load clean, no warnings, non-empty grid"
+    bad = []
+    for scn in NEW_SCENARIOS:
+        c.eval("return window.__FLUX.reset()")
+        c.eval("return window.__FLUX.reseed(1)")
+        ok = c.eval(f"return window.__FLUX.loadScenario('{scn}')")
+        if not ok:
+            bad.append(f"{scn}: loadScenario returned falsy")
+            continue
+        c.eval("return window.__FLUX.step(5)")
+        warns = c.eval("return window.__FLUX.reactionWarnings()")
+        if warns:
+            bad.append(f"{scn}: reactionWarnings={warns[:3]}")
+        phases = c.eval("return JSON.parse(JSON.stringify(window.__STATE__.totals.cellsByPhase))")
+        nonempty = sum(v for k, v in phases.items() if k != "empty")
+        if nonempty <= 0:
+            bad.append(f"{scn}: grid all-empty after step(5) (phases={phases})")
+    errs = _real_errors(c)
+    if errs:
+        return (name, False, f"uncaught JS errors while loading new scenarios: {errs[:5]}")
+    if bad:
+        return (name, False, "; ".join(bad))
+    return (name, True, f"all {len(NEW_SCENARIOS)} scenarios ({', '.join(NEW_SCENARIOS)}) "
+                        f"loaded clean, 0 warnings, non-empty grids")
+
+
+def test_cryo_flash_freeze(c):
+    name = "12 cryo: liquid_nitrogen flash-freezes water (peak ice>0) and boils to nitrogen gas"
+    # LN2 sits directly ABOVE a warm water pool. LN2 (baseTemp -205C, boil -196C) is a
+    # huge cold sink: the water it contacts crosses freeze=0C and snap-converts to ICE,
+    # while the LN2 itself boils to nitrogen gas. Ice here is TRANSIENT (warm concrete/air
+    # ambient melts it back), so we track the PEAK ice mass across the run, not the final.
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(21)")
+    c.eval("return window.__FLUX.paintRect(140,150,180,170,'water')")
+    c.eval("return window.__FLUX.paintRect(140,128,180,149,'liquid_nitrogen')")
+    c.eval("return window.__FLUX.step(0)")  # publish baseline without advancing
+    water0 = _mass(c, "water")
+    ln2_0 = _mass(c, "liquid_nitrogen")
+    if water0 <= 0 or ln2_0 <= 0:
+        return (name, False, f"fixture invalid: water0={water0}, ln2_0={ln2_0}")
+    ice_peak = 0
+    n2_peak = 0
+    for _ in range(30):
+        c.eval("return window.__FLUX.step(3)")
+        ice = _mass(c, "ice")
+        n2 = _mass(c, "nitrogen")
+        if ice > ice_peak:
+            ice_peak = ice
+        if n2 > n2_peak:
+            n2_peak = n2
+    if ice_peak <= 0:
+        return (name, False, f"no ice ever formed (peak={ice_peak}); LN2 did not freeze the water")
+    if n2_peak <= 0:
+        return (name, False, f"no nitrogen gas produced (peak={n2_peak}); LN2 did not boil off")
+    return (name, True,
+            f"peak ice={ice_peak} (flash-freeze fired), peak nitrogen gas={n2_peak} (LN2 boiled off); "
+            f"water0={water0}, ln2_0={ln2_0}")
+
+
+def test_thermite_burns_through_metal(c):
+    name = "13 thermite: spark ignites thermite -> molten_metal appears (burns through the plate)"
+    # A metal block with a thermite pile above it and a spark on the thermite. The spark
+    # flashes the thermite to ~2500C molten_metal (reaction rule), well above steel's
+    # 1400C melt point. The observable that the burn happened is molten_metal mass > 0.
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(9)")
+    c.eval("return window.__FLUX.paintRect(150,150,180,165,'metal')")
+    c.eval("return window.__FLUX.paintRect(150,132,180,149,'thermite')")
+    c.eval("return window.__FLUX.paintRect(163,130,167,131,'spark')")
+    c.eval("return window.__FLUX.step(0)")
+    metal0 = _mass(c, "metal")
+    therm0 = _mass(c, "thermite")
+    if metal0 <= 0 or therm0 <= 0:
+        return (name, False, f"fixture invalid: metal0={metal0}, thermite0={therm0}")
+    molten_peak = 0
+    for _ in range(40):
+        c.eval("return window.__FLUX.step(3)")
+        mm = _mass(c, "molten_metal")
+        if mm > molten_peak:
+            molten_peak = mm
+    if molten_peak <= 0:
+        return (name, False,
+                f"no molten_metal formed (peak={molten_peak}); thermite did not ignite/melt")
+    therm1 = _mass(c, "thermite")
+    return (name, True,
+            f"molten_metal peak={molten_peak} (thermite ignited into molten iron), "
+            f"thermite {therm0}->{therm1}")
+
+
+def test_gasoline_ignites_from_spark(c):
+    name = "14 gasoline: a spark into a gasoline pool ignites it (peak fire+smoke > 0)"
+    # Gasoline on a stone floor, allowed to settle, then a spark painted into it. Gasoline
+    # ignites at just 45C; spark+gasoline -> fire (reaction rule). The burst is transient
+    # (fire decays to smoke and away), so track the PEAK combustion mass (fire+smoke).
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(4)")
+    c.eval("return window.__FLUX.paintRect(100,185,220,189,'stone')")
+    c.eval("return window.__FLUX.paintRect(130,178,190,184,'gasoline')")
+    c.eval("return window.__FLUX.step(5)")  # let the gasoline settle onto the floor
+    gas0 = _mass(c, "gasoline")
+    if gas0 <= 0:
+        return (name, False, f"fixture invalid: no gasoline settled (gas0={gas0})")
+    c.eval("return window.__FLUX.paintRect(158,180,162,182,'spark')")
+    c.eval("return window.__FLUX.step(0)")
+    combust_peak = 0
+    for _ in range(20):
+        c.eval("return window.__FLUX.step(3)")
+        combust = _mass(c, "fire") + _mass(c, "smoke")
+        if combust > combust_peak:
+            combust_peak = combust
+    if combust_peak <= 0:
+        return (name, False,
+                f"gasoline never ignited (peak fire+smoke={combust_peak}); gasoline0={gas0}")
+    gas1 = _mass(c, "gasoline")
+    return (name, True,
+            f"peak fire+smoke={combust_peak} (gasoline ignited from spark), gasoline {gas0}->{gas1}")
+
+
+def test_acid_lye_neutralization(c):
+    name = "15 acid + lye neutralize: acid consumed, salt and/or water produced"
+    # Acid painted directly above lye (the sim's alkali/base) so every column has an
+    # acid-lye contact. The declarative neutralization rule (acid+lye -> salt+water)
+    # consumes both reactants and produces salt (from acid) + water (from lye).
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(11)")
+    c.eval("return window.__FLUX.paintRect(120,100,160,120,'acid')")
+    c.eval("return window.__FLUX.paintRect(120,121,160,141,'lye')")
+    c.eval("return window.__FLUX.step(0)")  # baseline without advancing
+    acid0 = _mass(c, "acid")
+    salt0 = _mass(c, "salt")
+    water0 = _mass(c, "water")
+    if acid0 <= 0:
+        return (name, False, f"fixture invalid: no acid painted (acid0={acid0})")
+    c.eval("return window.__FLUX.step(80)")
+    m = _masses(c)
+    acid1 = m.get("acid", 0)
+    salt1 = m.get("salt", 0)
+    water1 = m.get("water", 0)
+    if not (acid1 < acid0):
+        return (name, False, f"acid not consumed: {acid0}->{acid1}")
+    if not (salt1 > salt0 or water1 > water0):
+        return (name, False,
+                f"no neutralization products: salt {salt0}->{salt1}, water {water0}->{water1}")
+    return (name, True,
+            f"acid {acid0}->{acid1} (consumed), salt {salt0}->{salt1}, water {water0}->{water1} "
+            f"(neutralization products appeared)")
+
+
+def test_mercury_sinks_below_water(c):
+    name = "16 mercury sinks below water: mercury settles to higher y (lower) than water"
+    # Mercury painted ON TOP of a water pool (unstable). Mercury is the densest material
+    # (density 70 vs water 10), so it must sink through the water and pool at the bottom.
+    # We compute the mean y of mercury cells vs water cells; mercury lower = higher y.
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(17)")
+    c.eval("return window.__FLUX.paintRect(0,195,319,199,'stone')")  # floor to contain the column
+    c.eval("return window.__FLUX.paintRect(150,110,170,130,'water')")
+    c.eval("return window.__FLUX.paintRect(150,88,170,109,'mercury')")  # mercury on top (unstable)
+    c.eval("return window.__FLUX.step(120)")  # let buoyancy re-sort
+    res = c.eval(
+        "var my=0,mn=0,wy=0,wn=0;"
+        "for(var y=80;y<195;y++)for(var x=145;x<=175;x++){"
+        "var cc=window.__FLUX.cellAt(x,y);if(!cc)continue;"
+        "if(cc.material==='mercury'){my+=y;mn++;}"
+        "if(cc.material==='water'){wy+=y;wn++;}}"
+        "return {mn:mn,wn:wn,mavg:mn?my/mn:0,wavg:wn?wy/wn:0};"
+    )
+    mn, wn = res["mn"], res["wn"]
+    mavg, wavg = res["mavg"], res["wavg"]
+    if mn <= 0 or wn <= 0:
+        return (name, False, f"missing fluid after settle: mercury cells={mn}, water cells={wn}")
+    if not (mavg > wavg):
+        return (name, False,
+                f"mercury did NOT sink below water: mercury avg-y={mavg:.1f} <= water avg-y={wavg:.1f}")
+    return (name, True,
+            f"mercury avg-y={mavg:.1f} > water avg-y={wavg:.1f} (mercury pooled beneath water); "
+            f"mercury cells={mn}, water cells={wn}")
+
+
+def test_co2_smothers_fire(c):
+    name = "17 CO2 smothers fire: heavy CO2 gas starves a wood fire (fire does not grow)"
+    # A small fire on a wood bed, with CO2 (the heaviest gas, density 5) painted above it.
+    # CO2 sinks down onto the flame and smothers it to smoke (reaction rule). Lenient
+    # assertion: the fire must NOT grow above its starting mass, and it should end low.
+    c.eval("return window.__FLUX.reset()")
+    c.eval("return window.__FLUX.reseed(6)")
+    c.eval("return window.__FLUX.paintRect(140,180,180,189,'wood')")
+    c.eval("return window.__FLUX.paintRect(150,176,170,179,'fire')")
+    c.eval("return window.__FLUX.step(0)")
+    fire0 = _mass(c, "fire")
+    if fire0 <= 0:
+        return (name, False, f"fixture invalid: no fire painted (fire0={fire0})")
+    c.eval("return window.__FLUX.paintRect(140,168,180,175,'co2')")
+    c.eval("return window.__FLUX.step(0)")
+    fire_peak = fire0
+    for _ in range(14):
+        c.eval("return window.__FLUX.step(3)")
+        f = _mass(c, "fire")
+        if f > fire_peak:
+            fire_peak = f
+    fire1 = _mass(c, "fire")
+    # Smothering: the fire is suppressed, not fanned. It must not balloon above its start.
+    if fire_peak > 2.0 * fire0:
+        return (name, False,
+                f"fire grew under CO2 (not smothered): fire0={fire0}, peak={fire_peak}")
+    if fire1 > fire0:
+        return (name, False,
+                f"fire did not subside under CO2: fire0={fire0}, final={fire1}")
+    return (name, True,
+            f"fire smothered by CO2: fire0={fire0}, peak={fire_peak}, final={fire1} (did not grow)")
+
+
+def test_determinism_new_reactions(c):
+    name = "18 determinism (new engine): reseed(42)+PowderKeg+step(80) twice => same hash"
+    # PowderKeg exercises the new chance-gated reaction engine heavily (spark -> tar fuse ->
+    # gunpowder deflagration -> napalm). If any reaction or viscosity roll used a forbidden
+    # nondeterminism source instead of the seeded rng, the two hashes would diverge.
+    def run():
+        c.eval("return window.__FLUX.reset()")
+        c.eval("return window.__FLUX.reseed(42)")
+        c.eval("return window.__FLUX.loadScenario('PowderKeg')")
+        c.eval("return window.__FLUX.step(80)")
+        return c.eval("return window.__FLUX.stateHash()")
+    h1 = run()
+    h2 = run()
+    if not isinstance(h1, (int, float)):
+        return (name, False, f"stateHash not numeric: {h1!r}")
+    if h1 != h2:
+        return (name, False, f"hashes differ across runs: {h1} != {h2} (nondeterminism leaked in)")
+    return (name, True,
+            f"identical hash 0x{int(h1):08x} across two reaction-heavy PowderKeg runs")
+
+
 TESTS = [
     test_boots,
     test_ticks_advance,
@@ -421,6 +659,14 @@ TESTS = [
     test_energy_sanity_steam_boiler,
     test_melting,
     test_overlays_dont_crash,
+    test_new_scenarios_load,
+    test_cryo_flash_freeze,
+    test_thermite_burns_through_metal,
+    test_gasoline_ignites_from_spark,
+    test_acid_lye_neutralization,
+    test_mercury_sinks_below_water,
+    test_co2_smothers_fire,
+    test_determinism_new_reactions,
 ]
 
 
