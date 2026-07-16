@@ -186,6 +186,8 @@ const FLUX = {
   },
   stateHash,
   totalEnergy() { return sim.thermal.totalEnergy(); },
+  // reaction-engine compile warnings (misnamed materials in rules, etc.) — for tests
+  reactionWarnings() { return sim.reactions.warnings.slice(); },
   // shareable scene URLs (fully static, no backend)
   shareURL() {
     const enc = encodeScene(grid, rng.seed);

@@ -32,8 +32,11 @@ export class Sim {
 
     this.movePass();
     for (let s = 0; s < this.thermalSubsteps; s++) this.thermal.diffuse(1.0);
-    this.lastChanges = this.thermal.phaseChanges(1.0);
+    // Reactions run BEFORE phase changes so contact chemistry (LN2 flash-freezing
+    // water, thermite igniting, quenches) gets first crack before a cell would
+    // otherwise boil/melt itself away this tick.
     this.lastReactions = this.reactionPass();
+    this.lastChanges = this.thermal.phaseChanges(1.0);
     this.lifetimePass();
 
     this.tick++;
@@ -69,7 +72,11 @@ export class Sim {
         const x = ltr ? k : w - 1 - k;
         const i = y * w + x;
         if (moved[i]) continue;
-        if (MATERIALS[mat[i]].phase === PHASE.GAS) this.moveGas(x, y, i);
+        const gd = MATERIALS[mat[i]];
+        // `static` gases (spark/electric arc) don't drift — they stay put for their
+        // short life and propagate purely by reaction (jumping along conductors),
+        // so a spark can actually ignite the fuel it was painted onto.
+        if (gd.phase === PHASE.GAS && !gd.static) this.moveGas(x, y, i);
       }
     }
   }

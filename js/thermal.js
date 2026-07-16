@@ -93,6 +93,10 @@ export class Thermal {
         // they can dump energy downward into fuel/metal before they decay.
         temp[i] += (d.baseTemp - temp[i]) * 0.35 * dt;
       }
+      // absolute-zero floor: exothermic/endothermic reaction bumps and cryo sources
+      // must never drive a cell below -273.15C (physically impossible + corrupts
+      // the solver). Clamp here so no code path can produce sub-zero-Kelvin temps.
+      if (temp[i] < -273.15) temp[i] = -273.15;
     }
   }
 

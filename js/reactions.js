@@ -104,7 +104,13 @@ export class ReactionEngine {
         const j = neighborIdxs[k];
         const bDef = MATERIALS[grid.mat[j]];
         if (r.bId !== null) { if (bDef.id !== r.bId) continue; }
-        else if (!r.bMatch(bDef)) continue;
+        else {
+          // class match ('any_liquid' etc.): never match a neighbor of the SAME
+          // material as the actor (e.g. liquid_nitrogen + any_liquid must not
+          // freeze its own kind — only foreign liquids).
+          if (bDef.id === actorId) continue;
+          if (!r.bMatch(bDef)) continue;
+        }
 
         const bTempC = grid.temp[j];
         if (r.bTempMin !== undefined && bTempC < r.bTempMin) continue;
