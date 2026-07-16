@@ -10,12 +10,15 @@
 
 import { MATERIALS, M, PHASE } from './materials.js';
 import { Thermal } from './thermal.js';
+import { ReactionEngine } from './reactions.js';
+import { REACTION_RULES } from './reaction_rules.js';
 
 export class Sim {
   constructor(grid, rng) {
     this.g = grid;
     this.rng = rng;
     this.thermal = new Thermal(grid);
+    this.reactions = new ReactionEngine(REACTION_RULES);
     this.tick = 0;
     this.thermalSubsteps = 3;
     // counters exposed to the HUD / tests
@@ -112,7 +115,8 @@ export class Sim {
 
   moveLiquid(x, y, i) {
     const g = this.g, w = g.w, h = g.h;
-    // fall straight down
+    const a = MATERIALS[g.mat[i]];
+    // fall straight down (into empty or a lighter fluid/gas -> density sinking)
     if (y < h - 1 && this.canDisplace(i, i + w)) { this.swap(i, i + w); return; }
     // diagonal down
     const first = this.rng.next() < 0.5 ? -1 : 1;
@@ -121,28 +125,68 @@ export class Sim {
       if (nx < 0 || nx >= w) continue;
       if (y < h - 1 && this.canDisplace(i, i + w + dx)) { this.swap(i, i + w + dx); return; }
     }
-    // spread sideways to find its level (biased random walk, deterministic)
+    // VISCOSITY-GATED SIDEWAYS SPREAD.
+    // A liquid's spread rate scales inversely with viscosity: water (0.0) sheets
+    // out every tick over many cells; oil (~0.4) is medium; lava (~0.95) barely
+    // creeps; tar/honey (~0.99) almost holds shape. Viscosity also caps how far a
+    // cell may travel sideways in one tick (dispersion distance).
+    const visc = a.viscosity === undefined ? 0.0 : a.viscosity;
+    // probability this viscous cell moves sideways at all this tick
+    if (this.rng.next() < visc * 0.92) return;   // too thick to flow this tick
+    // dispersion: thin liquids search several cells for a downhill/empty slot
+    const reach = 1 + Math.round((1 - visc) * 6);  // water ~7, oil ~4, lava ~1
     for (const dx of [first, -first]) {
-      const nx = x + dx;
-      if (nx < 0 || nx >= w) continue;
-      const s = i + dx;
-      if (g.mat[s] === M.EMPTY) { this.swap(i, s); return; }
+      let step = 0;
+      let cx = x, ci = i;
+      while (step < reach) {
+        const nx = cx + dx;
+        if (nx < 0 || nx >= w) break;
+        const s = ci + dx;
+        // prefer to flow into empty, or sink one further if there's a drop
+        if (g.mat[s] === M.EMPTY) {
+          // if there's a hole below the destination, fall in there (finds level)
+          if (y < h - 1 && g.mat[s + w] === M.EMPTY) { this.swap(i, s + w); return; }
+          this.swap(i, s); return;
+        }
+        // can we displace a lighter liquid to the side to keep flowing? (level-finding)
+        if (!this.canDisplace(i, s)) break;
+        this.swap(i, s); return;
+      }
     }
   }
 
   moveGas(x, y, i) {
     const g = this.g, w = g.w;
-    // rise straight up
-    if (y > 0 && this.canRiseInto(i, i - w)) { this.swap(i, i - w); return; }
-    // diagonal up
-    const first = this.rng.next() < 0.5 ? -1 : 1;
-    for (const dx of [first, -first]) {
-      const nx = x + dx;
-      if (nx < 0 || nx >= w) continue;
-      if (y > 0 && this.canRiseInto(i, i - w + dx)) { this.swap(i, i - w + dx); return; }
+    const a = MATERIALS[g.mat[i]];
+    // BUOYANCY scales with temperature: hot gas rises eagerly, cool/heavy gas
+    // (e.g. CO2, cold nitrogen) is sluggish and can even sink. rise = P(rise up).
+    const over = g.temp[i] - g.ambient;          // how much hotter than room
+    // dense gases (co2, cold n2) with density high enough sink instead of rise
+    const buoyant = a.density < 3.0;             // light gas -> rises; heavy -> sinks
+    if (buoyant) {
+      const rise = Math.max(0.15, Math.min(1, 0.35 + over / 900)); // 0.15..1
+      if (this.rng.next() < rise) {
+        if (y > 0 && this.canRiseInto(i, i - w)) { this.swap(i, i - w); return; }
+        const first = this.rng.next() < 0.5 ? -1 : 1;
+        for (const dx of [first, -first]) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          if (y > 0 && this.canRiseInto(i, i - w + dx)) { this.swap(i, i - w + dx); return; }
+        }
+      }
+    } else {
+      // heavy gas sinks and pools (smothers fire): try to fall
+      if (y < g.h - 1 && g.mat[i + w] === M.EMPTY) { this.swap(i, i + w); return; }
+      const first = this.rng.next() < 0.5 ? -1 : 1;
+      for (const dx of [first, -first]) {
+        const nx = x + dx;
+        if (nx < 0 || nx >= w) continue;
+        if (y < g.h - 1 && g.mat[i + w + dx] === M.EMPTY) { this.swap(i, i + w + dx); return; }
+      }
     }
-    // drift sideways (dissipation)
-    for (const dx of [first, -first]) {
+    // drift sideways (dissipation) — both kinds spread laterally
+    const fd = this.rng.next() < 0.5 ? -1 : 1;
+    for (const dx of [fd, -fd]) {
       const nx = x + dx;
       if (nx < 0 || nx >= w) continue;
       if (g.mat[i + dx] === M.EMPTY) { this.swap(i, i + dx); return; }
@@ -165,6 +209,7 @@ export class Sim {
     const g = this.g;
     const { w, h, mat, temp } = g;
     let count = 0;
+    const nbuf = [0, 0, 0, 0];
 
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -173,37 +218,36 @@ export class Sim {
         if (id === M.EMPTY) continue;
         const d = MATERIALS[id];
 
-        // 1) Materials that ignite neighbors (fire, ember, lava) heat + light adjacent flammables
+        // gather 4-neighborhood into a reusable buffer (deterministic order:
+        // left, right, up, down)
+        let n = 0;
+        if (x > 0) nbuf[n++] = i - 1;
+        if (x < w - 1) nbuf[n++] = i + 1;
+        if (y > 0) nbuf[n++] = i - w;
+        if (y < h - 1) nbuf[n++] = i + w;
+        const nb = nbuf.slice(0, n);
+
+        // 1) Contact heating: materials that ignite neighbors (fire/ember/lava)
+        //    dump heat hard into cooler neighbors — a flame lick is intense locally.
         if (d.ignitesNeighbors) {
-          count += this.igniteAround(x, y, i);
+          for (let k = 0; k < n; k++) {
+            const j = nbuf[k];
+            if (temp[j] < temp[i]) temp[j] += (temp[i] - temp[j]) * 0.45;
+          }
         }
 
-        // 2) Flammable materials self-ignite above their ignite temp
+        // 2) Self-ignition above ignite temp (flammables flash on their own)
         if (d.flammable && d.ignite !== undefined && temp[i] >= d.ignite && d.burnTo) {
-          // wood/plant leave ember; oil flashes to fire
           g.convert(i, d.burnTo(), false);
           count++;
           continue;
         }
 
-        // 3) Water quenching: if water is adjacent to fire/ember, cool it and make steam-ish
-        if (d.quench) {
-          count += this.quenchAround(x, y, i);
-        }
-
-        // 4) Lava + water contact => obsidian (lava side) + steam (water side)
-        if (id === M.LAVA) {
-          count += this.lavaWaterContact(x, y, i);
-        }
-
-        // 5) Plant growth into adjacent water (slow, deterministic)
-        if (d.grows && this.rng.chance(0.02)) {
-          count += this.growInto(x, y, i);
-        }
-
-        // 6) Acid corrodes adjacent stone/metal
-        if (d.corrosive && this.rng.chance(0.15)) {
-          count += this.corrodeAround(x, y, i);
+        // 3) DATA-DRIVEN reactions: the generic engine handles all pairwise
+        //    interactions declared in reaction_rules.js (lava+water, acid+base,
+        //    cryo freezing, combustion bursts, dissolving, neutralization, ...).
+        if (this.reactions.hasRules(id)) {
+          count += this.reactions.apply(g, this.rng, x, y, i, id, nb);
         }
       }
     }
@@ -218,81 +262,6 @@ export class Sim {
     if (y > 0) out.push((y - 1) * w + x);
     if (y < h - 1) out.push((y + 1) * w + x);
     return out;
-  }
-
-  igniteAround(x, y, i) {
-    const g = this.g;
-    let c = 0;
-    for (const j of this.neighbors(x, y)) {
-      const d = MATERIALS[g.mat[j]];
-      // dump heat hard into neighbors on contact — a flame lick is intense locally.
-      // This is what lets a short-lived fire actually ignite fuel / heat metal
-      // before it rises away as a gas.
-      if (g.temp[j] < g.temp[i]) g.temp[j] += (g.temp[i] - g.temp[j]) * 0.45;
-      // directly ignite flammables that are hot enough
-      if (d.flammable && d.ignite !== undefined && g.temp[j] >= d.ignite && d.burnTo) {
-        g.convert(j, d.burnTo(), false);
-        c++;
-      }
-    }
-    return c;
-  }
-
-  quenchAround(x, y, i) {
-    const g = this.g;
-    let c = 0;
-    for (const j of this.neighbors(x, y)) {
-      const id = g.mat[j];
-      if (id === M.FIRE || id === M.EMBER) {
-        // put out the fire; water heats up toward boiling
-        g.convert(j, M.SMOKE, false);
-        g.temp[i] += 30;
-        c++;
-      }
-    }
-    return c;
-  }
-
-  lavaWaterContact(x, y, i) {
-    const g = this.g;
-    let c = 0;
-    for (const j of this.neighbors(x, y)) {
-      if (g.mat[j] === M.WATER) {
-        // lava freezes to obsidian; the touching water flashes to steam
-        g.convert(i, M.OBSIDIAN, false);
-        g.temp[i] = 400;
-        g.convert(j, M.STEAM, false);
-        g.temp[j] = 130;
-        c += 2;
-        return c; // one contact resolves this lava cell
-      }
-    }
-    return c;
-  }
-
-  growInto(x, y, i) {
-    const g = this.g;
-    for (const j of this.neighbors(x, y)) {
-      if (g.mat[j] === M.WATER) {
-        g.convert(j, M.PLANT, false);
-        return 1;
-      }
-    }
-    return 0;
-  }
-
-  corrodeAround(x, y, i) {
-    const g = this.g;
-    for (const j of this.neighbors(x, y)) {
-      const id = g.mat[j];
-      if (id === M.STONE || id === M.METAL || id === M.SAND || id === M.WOOD) {
-        g.convert(j, M.EMPTY, false);
-        // acid is consumed sometimes
-        if (this.rng.chance(0.3)) g.convert(i, M.EMPTY, false);
-        return 1;
-      }
-    }
-    return 0;
   }
 
   // ---- lifetimes ----------------------------------------------------------

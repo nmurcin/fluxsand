@@ -68,16 +68,17 @@ export const MATERIALS = [
   { id: 2, name: 'water', phase: PHASE.LIQUID, color: [58, 132, 178], density: 10,
     conduct: 0.55, heatCap: 4.18, freeze: 0, latentFreeze: 34,
     boil: 100, latentBoil: 226, boilTo: () => M.STEAM, freezeTo: () => M.ICE,
-    quench: true, glow: 0 },
+    quench: true, viscosity: 0.02, glow: 0 },
 
   // 3 STONE — inert solid; melts to lava. heatCap 1.0: basalt ~900 J/kgK ~= 0.22x water.
   { id: 3, name: 'stone', phase: PHASE.SOLID, color: [110, 112, 122], density: 40,
     conduct: 0.30, heatCap: 1.0, melt: 1150, latentMelt: 80, meltTo: () => M.LAVA, glow: 0 },
 
   // 4 LAVA — crimson->orange liquid; freezes to stone; ignites; melts metal on contact
+  // viscosity 0.9: real basaltic lava is ~10^4-10^5x water viscosity — it creeps.
   { id: 4, name: 'lava', phase: PHASE.LIQUID, color: [190, 52, 28], density: 32,
     conduct: 0.30, heatCap: 1.0, freeze: 700, latentFreeze: 80, freezeTo: () => M.STONE,
-    baseTemp: 1150, glow: 1.0, heatColor: true, ignitesNeighbors: true },
+    baseTemp: 1150, viscosity: 0.9, glow: 1.0, heatColor: true, ignitesNeighbors: true },
 
   // 5 ICE — pale solid; melts to water. latentMelt 34 = water's latent heat of fusion.
   { id: 5, name: 'ice', phase: PHASE.SOLID, color: [176, 214, 232], density: 9,
@@ -92,9 +93,10 @@ export const MATERIALS = [
     baseTemp: 110, lifetime: 900, glow: 0.08 },
 
   // 7 OIL — dark iridescent liquid; highly flammable
+  // viscosity 0.35: motor/crude oil is ~10-100x water — flows, but slower.
   { id: 7, name: 'oil', phase: PHASE.LIQUID, color: [70, 54, 40], density: 8,
     conduct: 0.20, heatCap: 1.9, flammable: true, ignite: 180, burnTo: () => M.FIRE,
-    glow: 0 },
+    viscosity: 0.35, glow: 0 },
 
   // 8 FIRE — hot plasma gas; short-lived; ignites; decays to smoke/ember.
   // conduct 0.05 (gas): fire heats neighbors via the strong CONTACT term in
@@ -114,9 +116,10 @@ export const MATERIALS = [
     conduct: 0.92, heatCap: 0.5, melt: 1400, latentMelt: 120, meltTo: () => M.MOLTEN_METAL,
     heatColor: true, glow: 0 },
 
-  // 11 MOLTEN_METAL — glowing liquid; freezes back to metal
+  // 11 MOLTEN_METAL — glowing liquid; freezes back to metal. viscosity 0.5:
+  // molten steel is runnier than lava but still notably thicker than water.
   { id: 11, name: 'molten_metal', phase: PHASE.LIQUID, color: [232, 120, 40], density: 55,
-    conduct: 0.9, heatCap: 0.5, freeze: 1350, latentFreeze: 120, freezeTo: () => M.METAL,
+    conduct: 0.9, heatCap: 0.5, viscosity: 0.5, freeze: 1350, latentFreeze: 120, freezeTo: () => M.METAL,
     baseTemp: 1500, glow: 1.0, heatColor: true },
 
   // 12 SMOKE — gray gas; rises and dissipates. conduct 0.03 (gas, poor conductor).
@@ -148,11 +151,11 @@ export const MATERIALS = [
   // 18 MOLTEN_GLASS — glowing viscous liquid; freezes to glass
   { id: 18, name: 'molten_glass', phase: PHASE.LIQUID, color: [230, 150, 90], density: 22,
     conduct: 0.35, heatCap: 0.8, freeze: 1000, latentFreeze: 90, freezeTo: () => M.GLASS,
-    baseTemp: 1250, glow: 0.9, heatColor: true },
+    baseTemp: 1250, viscosity: 0.96, glow: 0.9, heatColor: true },
 
   // 19 ACID — corrosive green liquid; dissolves stone/metal (stretch chemistry)
   { id: 19, name: 'acid', phase: PHASE.LIQUID, color: [120, 210, 60], density: 9,
-    conduct: 0.3, heatCap: 2.0, corrosive: true, glow: 0.05 },
+    conduct: 0.3, heatCap: 2.0, corrosive: true, viscosity: 0.08, glow: 0.05 },
 
   // 20 PLANT — green solid; grows into adjacent water, flammable
   { id: 20, name: 'plant', phase: PHASE.SOLID, color: [70, 150, 66], density: 14,
