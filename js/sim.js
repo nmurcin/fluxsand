@@ -216,7 +216,7 @@ export class Sim {
     const g = this.g;
     const { w, h, mat, temp } = g;
     let count = 0;
-    const nbuf = [0, 0, 0, 0];
+    const nbuf = [0, 0, 0, 0, 0, 0, 0, 0];
 
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -225,13 +225,20 @@ export class Sim {
         if (id === M.EMPTY) continue;
         const d = MATERIALS[id];
 
-        // gather 4-neighborhood into a reusable buffer (deterministic order:
-        // left, right, up, down)
+        // gather 8-neighborhood into a reusable buffer (deterministic order:
+        // orthogonals first — left, right, up, down — then diagonals). Using the
+        // full Moore neighborhood makes reactions robust to a 1-cell gap that
+        // opens when a powder fuel settles a row away from a static igniter.
         let n = 0;
-        if (x > 0) nbuf[n++] = i - 1;
-        if (x < w - 1) nbuf[n++] = i + 1;
-        if (y > 0) nbuf[n++] = i - w;
-        if (y < h - 1) nbuf[n++] = i + w;
+        const up = y > 0, dn = y < h - 1, lf = x > 0, rt = x < w - 1;
+        if (lf) nbuf[n++] = i - 1;
+        if (rt) nbuf[n++] = i + 1;
+        if (up) nbuf[n++] = i - w;
+        if (dn) nbuf[n++] = i + w;
+        if (up && lf) nbuf[n++] = i - w - 1;
+        if (up && rt) nbuf[n++] = i - w + 1;
+        if (dn && lf) nbuf[n++] = i + w - 1;
+        if (dn && rt) nbuf[n++] = i + w + 1;
         const nb = nbuf.slice(0, n);
 
         // 1) Contact heating: materials that ignite neighbors (fire/ember/lava)
