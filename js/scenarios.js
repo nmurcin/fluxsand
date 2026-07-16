@@ -328,159 +328,90 @@ export const SCENARIOS = {
       fill(grid, cx - neckHalf + 1, y, cx + neckHalf - 1, y, M.EMPTY);
   },
 
-  // CRYO LAB -----------------------------------------------------------------
-  // A liquid-nitrogen tank breach flash-freezes a warm pool. An overhead metal
-  // tank (CONTINUOUS walls) holds LN2 at -205C; its floor is breached by a 2-cell
-  // drain hole so the cryo liquid streams straight down (gravity feed) into a
-  // concrete tub of ~ambient water directly below. As the LN2 lands it snap-freezes
-  // the water to ice and boils off to cold nitrogen fog — a cryogenic liquid
-  // boiling *because the room is warm*. A frosted plant bed, subliming dry-ice
-  // bricks, and a dusting of snow complete the cold-lab tableau.
+  // CRYO POUR ----------------------------------------------------------------
+  // A liquid-nitrogen tank pours straight down into a wide warm-water pool. The
+  // whole scene is stacked on the vertical centerline: a CONTINUOUS-walled metal
+  // tank up top, a short air gap, and a broad shallow concrete basin below. The
+  // tank floor has one wide drain slot so LN2 falls as a centered curtain into
+  // the pool — where it flash-freezes the water to ice and boils off to cold
+  // nitrogen fog (a cryo liquid boiling *because the room is warm*). Two dry-ice
+  // bricks on the tub rim sublime into a low CO2 haze for garnish.
   CryoLab(grid, rng, d) {
     const W = grid.w, H = grid.h;
     grid.clear();
 
     const floorTop = H - 14;
     fill(grid, 0, floorTop, W - 1, H - 1, M.CONCRETE);        // lab floor
+    const cx = W >> 1;
 
-    // Overhead LN2 tank — CONTINUOUS metal shell, hollowed and part-filled.
-    const tx0 = 40, tx1 = 150, tTop = 18, tBot = 70, wall = 3;
-    fill(grid, tx0 - wall, tTop, tx1 + wall, tBot + wall, M.METAL);   // solid metal block
+    // Warm-water basin: centered, wide, and shallow, sitting below the tank.
+    const bx0 = cx - 70, bx1 = cx + 70, bTop = 120, bBot = floorTop - 1;
+    fill(grid, bx0 - 4, bTop - 2, bx1 + 4, bBot + 2, M.CONCRETE);     // solid tub host
+    fill(grid, bx0, bTop, bx1, bBot, M.EMPTY);                        // hollow it
+    fill(grid, bx0, bTop + 10, bx1, bBot, M.WATER);                   // ambient water (freeze target)
+
+    // LN2 tank centered directly ABOVE, with a short ~12-cell air gap to the pool.
+    const tx0 = cx - 40, tx1 = cx + 40, tTop = 20, tBot = 108, wall = 3;
+    fill(grid, tx0 - wall, tTop, tx1 + wall, tBot + wall, M.METAL);   // continuous metal shell
     fill(grid, tx0, tTop + wall, tx1, tBot - 1, M.EMPTY);             // hollow interior
-    fill(grid, tx0, tTop + wall + 2, tx1, tBot - 2, M.LIQUID_NITROGEN); // -205C fill, headspace above
+    fill(grid, tx0, tTop + wall + 4, tx1, tBot - 2, M.LIQUID_NITROGEN); // -205C fill, headspace above
 
-    // Breach the tank floor: a 2-cell drain hole so LN2 streams straight down.
-    const holeX = (tx0 + tx1) >> 1;
-    fill(grid, holeX - 1, tBot - 1, holeX + 1, tBot + wall, M.EMPTY);  // carve through the metal floor
+    // Wide drain slot bored through the tank floor -> a centered LN2 curtain.
+    fill(grid, cx - 3, tBot - 1, cx + 3, tBot + wall, M.EMPTY);
 
-    // Target basin directly under the drain: warm water in a concrete tub.
-    const bx0 = holeX - 34, bx1 = holeX + 34, bTop = floorTop - 26, bBot = floorTop - 1;
-    fill(grid, bx0 - 4, bTop - 2, bx1 + 4, bBot + 2, M.CONCRETE);      // solid tub host
-    fill(grid, bx0, bTop, bx1, bBot, M.EMPTY);                         // hollow it
-    fill(grid, bx0, bTop + 8, bx1, bBot, M.WATER);                     // ambient water (freeze target)
+    // Two dry-ice bricks on the tub rim: sublime into a low CO2 fog.
+    fill(grid, bx0 - 2, bTop - 6, bx0 + 6, bTop - 1, M.DRY_ICE);
+    fill(grid, bx1 - 6, bTop - 6, bx1 + 2, bTop - 1, M.DRY_ICE);
 
-    // A living plant bed to the right that will frost over.
-    for (let x = bx1 + 16; x < W - 24; x++) {
-      grid.set(x, floorTop - 1, M.CONCRETE);
-      if (rng.chance(0.5)) col(grid, x, floorTop - 4, floorTop - 2, M.PLANT);
-    }
-    fill(grid, bx1 + 14, floorTop - 3, bx1 + 14, floorTop - 1, M.WATER); // damp soil edge
-
-    // Dry-ice bricks on the floor (foreground): sublime into a low CO2 fog.
-    for (let k = 0; k < 4; k++) {
-      const dx = 170 + k * 22 + rng.int(4);
-      fill(grid, dx, floorTop - 4, dx + 6, floorTop - 1, M.DRY_ICE);
-    }
-
-    // A light dusting of snow across the whole floor for atmosphere.
-    for (let x = 4; x < W - 4; x++)
-      if (rng.chance(0.18)) grid.set(x, floorTop - 1, M.SNOW);
-
-    // Frame-one wisp of cryo liquid already leaking from the drain so it reads live.
-    for (let n = 0; n < 5; n++)
-      grid.set(holeX - 2 + rng.int(5), bTop - 3 - rng.int(4), M.LIQUID_NITROGEN);
+    // Frame-one: LN2 already spilling into the gap so it reads live.
+    for (let n = 0; n < 6; n++)
+      grid.set(cx - 3 + rng.int(7), tBot + wall + 1 + rng.int(4), M.LIQUID_NITROGEN);
   },
 
-  // POWDER KEG ---------------------------------------------------------------
-  // A spark drops onto a tar-soaked fuse rope; the flame front races along the
-  // slow-burning tar to a sealed stone vault packed with gunpowder, where the
-  // powder deflagrates cell-to-cell in a fast chain and blows out through a
-  // deliberately thin (weak) roof panel. A napalm-skinned wooden crate ignites
-  // into a sticky, long-burning secondary fire — gunpowder's fast cascade vs
-  // napalm's slow sticky burn side by side.
+  // SPARKWIRE DETONATION -----------------------------------------------------
+  // A spark on a left-edge pad runs down a METAL wire (conduct 0.92 — heat races
+  // along it) straight through the wall of a centered stone vault and into a deep
+  // packed gunpowder charge. The buried wire tip heats the powder past its ~200C
+  // ignite point; the charge deflagrates cell-to-cell in a fast chain and blows
+  // out through a deliberately thin stone lid. A gasoline puddle to the right sits
+  // in reach of the blast for a volatile secondary flash.
   PowderKeg(grid, rng, d) {
     const W = grid.w, H = grid.h;
     grid.clear();
 
     const floorTop = H - 12;
     fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
+    const cx = W >> 1;
 
     // Sealed powder vault: CONTINUOUS stone walls, one thin (weak) roof panel.
-    const vx0 = 180, vx1 = 280, vTop = floorTop - 70, vBot = floorTop - 1, wall = 4;
+    const vx0 = cx - 45, vx1 = cx + 45, vTop = floorTop - 70, vBot = floorTop - 1, wall = 4;
     fill(grid, vx0 - wall, vTop - wall, vx1 + wall, vBot, M.STONE);    // solid host block
     fill(grid, vx0, vTop, vx1, vBot - 1, M.EMPTY);                     // hollow chamber
-    fill(grid, vx0, vBot - 30, vx1, vBot - 1, M.GUNPOWDER);            // packed powder charge
-    for (let x = vx0; x <= vx1; x++)
-      if (rng.chance(0.08)) grid.set(x, vBot - 31, M.GUNPOWDER);       // ragged top surface
+    fill(grid, vx0, vBot - 40, vx1, vBot - 1, M.GUNPOWDER);            // deep packed charge
     row(grid, vx0, vx1, vTop - 1, M.STONE);                           // deliberately thin blow-out lid
 
-    // Fuse entry: bore a 2-cell tar channel through the LEFT vault wall.
-    const fuseY = vBot - 6;
-    for (let x = vx0 - wall - 1; x <= vx0; x++) carveIf(grid, x, fuseY, M.STONE, M.TAR);
-    for (let x = vx0 - wall - 1; x <= vx0; x++) carveIf(grid, x, fuseY + 1, M.STONE, M.TAR);
+    // Metal wire from a left-edge spark pad, THROUGH the wall, into the powder.
+    const wireY = vBot - 20;
+    for (let x = 12; x <= vx0; x++) grid.set(x, wireY, M.METAL);       // open-air run to the wall
+    for (let x = vx0 - wall - 1; x <= vx0; x++) carveIf(grid, x, wireY, M.STONE, M.METAL); // bore through wall
+    col(grid, vx0 + 1, wireY - 6, wireY + 6, M.GUNPOWDER);            // wire tip buried in charge
 
-    // Tar fuse rope laid across the open floor out to the ignition point.
-    const fuseStartX = 30;
-    for (let x = fuseStartX; x < vx0 - wall; x++) {
-      grid.set(x, fuseY, M.TAR);
-      grid.set(x, fuseY + 1, M.TAR);
-    }
+    // The igniter: spark on the wire's left-edge pad.
+    grid.set(12, wireY, M.SPARK);
+    if (rng.chance(0.5)) grid.set(13, wireY, M.SPARK);
 
-    // Napalm-coated crate near the vault: a wood core wrapped in napalm skin.
-    const kx = vx0 - 40;
-    fill(grid, kx - 8, floorTop - 16, kx + 8, floorTop - 1, M.WOOD);  // crate core
-    row(grid, kx - 9, kx + 9, floorTop - 17, M.NAPALM);              // top skin
-    col(grid, kx - 9, floorTop - 17, floorTop - 1, M.NAPALM);        // left skin
-    col(grid, kx + 9, floorTop - 17, floorTop - 1, M.NAPALM);        // right skin
-
-    // The igniter: a single spark cell resting ON the fuse tail.
-    grid.set(fuseStartX, fuseY - 1, M.SPARK);
-    if (rng.chance(0.5)) grid.set(fuseStartX + 1, fuseY - 1, M.SPARK);
+    // Gasoline puddle to the right the blast can reach and ignite.
+    fill(grid, vx1 + wall + 10, floorTop - 3, vx1 + wall + 40, floorTop - 1, M.GASOLINE);
   },
 
-  // CHEM LAB -----------------------------------------------------------------
-  // Three tiered concrete neutralization basins. The top basin holds acid that
-  // overflows a notched weir and dissolves the concrete lip it runs across; the
-  // drip lands in a middle water basin over a salt bed; the bottom basin holds a
-  // heavy silver pool of MERCURY that everything stratifies above — acid and
-  // water ride on top of the densest liquid in the sim instead of mixing down.
-  // Density stratification + acid-corrodes-concrete on display.
+  // NEUTRALIZATION COLUMN ----------------------------------------------------
+  // One tall centered glass column, sealed floor to lid, stacked as a chemistry
+  // set: green ACID in the upper half rests on purple LYE in the lower half. Where
+  // the two meet they neutralize to salt + water (exothermic) — a churning band
+  // develops mid-column. A dense MERCURY puddle floors the column so the lighter
+  // liquids stratify above it, and a small stone shelf near the acid slowly
+  // dissolves. Acid/base neutralization + density stratification, all in-frame.
   ChemLab(grid, rng, d) {
-    const W = grid.w, H = grid.h;
-    grid.clear();
-
-    const floorTop = H - 12;
-    fill(grid, 0, floorTop, W - 1, H - 1, M.CONCRETE);
-
-    // A walled concrete basin (continuous walls) for the given inner box.
-    const basin = (x0, y0, x1, y1) => {
-      fill(grid, x0 - 3, y0 - 3, x1 + 3, y1, M.CONCRETE);
-      fill(grid, x0, y0, x1, y1 - 1, M.EMPTY);
-    };
-
-    // Top basin (acid), highest = lowest y.
-    const t0 = 40, tt = 34, t1 = 150, tb = 78;
-    basin(t0, tt, t1, tb);
-    fill(grid, t0, tb - 16, t1, tb - 1, M.ACID);                     // acid pool
-    fill(grid, t1, tb - 2, t1 + 3, tb - 1, M.EMPTY);                 // notch the right lip -> weir
-    fill(grid, t1 + 3, tb - 1, 175, tb + 1, M.CONCRETE);            // apron the overflow etches
-
-    // Middle basin (water + salt bed), catches the acid drip.
-    const m0 = 150, mt = 92, m1 = 250, mb = 132;
-    basin(m0, mt, m1, mb);
-    fill(grid, m0, mb - 18, m1, mb - 1, M.WATER);
-    for (let x = m0 + 2; x <= m1 - 2; x++) col(grid, x, mb - 2, mb - 1, M.SALT); // dissolving salt bed
-
-    // Bottom basin (dense mercury pool) — everything stratifies above it.
-    const b0 = 90, bt = 150, b1 = 250, bb = floorTop - 1;
-    basin(b0, bt, b1, bb);
-    fill(grid, b0, bb - 14, b1, bb - 1, M.MERCURY);                  // heaviest liquid
-    fill(grid, b0, bb - 22, b1, bb - 15, M.WATER);                  // water pre-layered on top
-    fill(grid, m1, mb - 2, m1 + 3, mb - 1, M.EMPTY);               // middle lip notch
-    fill(grid, m1 + 3, mb - 1, b1, mb + 1, M.CONCRETE);            // apron down into mercury basin
-
-    // Frame-one: a bead of mercury dropped from above to show it plummeting.
-    disc(grid, (b0 + b1) >> 1, bt - 6, 2, M.MERCURY);
-  },
-
-  // THERMITE FOUNDRY ---------------------------------------------------------
-  // A hopper of thermite sits over a thick STEEL plate that caps a sand-lined
-  // concrete casting mold. A spark ignites the thermite, which flashes to
-  // ~2500C molten iron — hotter than steel's 1400C melt point — and cuts DOWN
-  // through the plate; the molten metal pours through the breach into the mold
-  // cavity, where it loses heat to the concrete/sand and freezes into a solid
-  // cast. A small water quench trough sits to the side for a steam puff.
-  ThermiteFoundry(grid, rng, d) {
     const W = grid.w, H = grid.h;
     grid.clear();
 
@@ -488,86 +419,104 @@ export const SCENARIOS = {
     fill(grid, 0, floorTop, W - 1, H - 1, M.CONCRETE);
     const cx = W >> 1;
 
-    // Concrete casting mold cavity in the floor, sand-lined (parting sand).
-    const mx0 = cx - 40, mx1 = cx + 40, mTop = floorTop - 40, mBot = floorTop - 1;
-    fill(grid, mx0 - 6, mTop - 6, mx1 + 6, mBot, M.CONCRETE);        // solid mold block
-    fill(grid, mx0, mTop, mx1, mBot - 1, M.EMPTY);                   // hollow cavity
-    row(grid, mx0, mx1, mBot - 1, M.SAND);                          // sand floor liner
-    col(grid, mx0, mTop, mBot - 1, M.SAND);                         // sand left liner
-    col(grid, mx1, mTop, mBot - 1, M.SAND);                         // sand right liner
+    // Tall glass column, centered, with continuous walls and a sealed floor.
+    const gx0 = cx - 24, gx1 = cx + 24, gTop = 24, gBot = floorTop - 1, wt = 3;
+    fill(grid, gx0 - wt, gTop, gx1 + wt, gBot + wt, M.GLASS);          // solid glass host
+    fill(grid, gx0, gTop + wt, gx1, gBot, M.EMPTY);                    // hollow interior
+    fill(grid, gx0, gBot, gx1, gBot, M.GLASS);                         // seal the floor
 
-    // Steel plate CAPPING the mold — the barrier the thermite must cut through.
-    const plateY = mTop - 2;
-    fill(grid, mx0 - 6, plateY - 2, mx1 + 6, plateY, M.METAL);       // thick continuous steel lid
+    // Fill: green acid over purple lye, meeting at mid-column to neutralize.
+    const mid = (gTop + gBot) >> 1;
+    fill(grid, gx0, gTop + wt + 6, gx1, mid - 1, M.ACID);             // green acid, upper
+    fill(grid, gx0, mid + 1, gx1, gBot - 2, M.LYE);                   // purple lye, lower
 
-    // Thermite hopper directly above the plate: concrete funnel + thermite charge.
-    const hx0 = cx - 14, hx1 = cx + 14, hTop = plateY - 40, hBot = plateY - 4;
-    fill(grid, hx0 - 4, hTop - 4, hx1 + 4, hBot + 4, M.CONCRETE);   // hopper host
-    fill(grid, hx0, hTop, hx1, hBot, M.EMPTY);                      // hollow
-    fill(grid, hx0, hTop + 6, hx1, hBot, M.THERMITE);               // packed thermite
-    // Bore a 3-cell nozzle through the concrete under the hopper down to the plate.
-    for (let y = hBot; y <= plateY - 1; y++)
-      for (let x = cx - 1; x <= cx + 1; x++) carveIf(grid, x, y, M.CONCRETE, M.EMPTY);
+    // Dense mercury puddle on the column floor — everything stratifies above it.
+    fill(grid, gx0 + 2, gBot - 6, gx1 - 2, gBot - 2, M.MERCURY);
 
-    // Igniter: a spark on top of the thermite pile.
-    grid.set(cx, hTop + 5, M.SPARK);
-    if (rng.chance(0.5)) grid.set(cx - 1, hTop + 5, M.SPARK);
+    // A sprinkle of salt across the neutralization boundary (the reaction product).
+    for (let x = gx0 + 2; x <= gx1 - 2; x++)
+      if (rng.chance(0.25)) grid.set(x, mid, M.SALT);
 
-    // Small water quench trough to the side (post-cast steam beauty puff).
-    fill(grid, mx1 + 20, floorTop - 10, mx1 + 40, floorTop - 1, M.CONCRETE);
-    fill(grid, mx1 + 23, floorTop - 8, mx1 + 37, floorTop - 1, M.WATER);
+    // A small stone shelf at the top-left the acid runs across and slowly eats.
+    row(grid, gx0, gx0 + 8, gTop + wt + 10, M.STONE);
   },
 
-  // RUBE GOLDBERG ------------------------------------------------------------
-  // One spark starts a descending chain that tours five expansion materials in
-  // sequence: a spark lights a gunpowder mortar whose fire jet reaches a thermite
-  // cutting-charge on a steel shelf; the thermite melts the shelf so a held-back
-  // LN2 reservoir dumps onto a warm water pool (flash-freeze + boil-off fog); the
-  // cold shock frees a perched mercury bead that rolls down a concrete staircase
-  // into a final catch basin. Each link is a different material's signature trick.
+  // THERMITE CUT -------------------------------------------------------------
+  // A steel beam spans two stone pillars in full view, with a pile of THERMITE
+  // heaped on top of it and a spark on the pile. Thermite ignites at 900C and
+  // flashes to ~2500C molten iron — well past steel's 1400C melt point — so the
+  // beam melts and slumps right where the pile sits, cut in the middle of the
+  // frame. The severed steel drips into a catch pit below with a shallow water
+  // quench for a steam puff. Open geometry: nothing hidden, the cut is the show.
+  ThermiteFoundry(grid, rng, d) {
+    const W = grid.w, H = grid.h;
+    grid.clear();
+
+    const floorTop = H - 12;
+    fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
+    const cx = W >> 1;
+
+    // A steel beam spanning two 3-wide stone pillars, centered.
+    const beamY = 70, beamX0 = cx - 60, beamX1 = cx + 60;
+    for (let d2 = 1; d2 <= 3; d2++) {
+      col(grid, beamX0 - d2, beamY, floorTop - 1, M.STONE);          // left pillar
+      col(grid, beamX1 + d2, beamY, floorTop - 1, M.STONE);          // right pillar
+    }
+    fill(grid, beamX0, beamY, beamX1, beamY + 3, M.METAL);           // 4-thick steel beam
+
+    // Thermite pile heaped ON the beam, with a spark to set it off.
+    fill(grid, cx - 16, beamY - 12, cx + 16, beamY - 1, M.THERMITE);
+    grid.set(cx, beamY - 13, M.SPARK);
+    if (rng.chance(0.5)) grid.set(cx - 1, beamY - 13, M.SPARK);
+
+    // Catch pit below the cut, with a shallow water quench for a steam puff.
+    const px0 = cx - 30, px1 = cx + 30, pTop = floorTop - 22;
+    fill(grid, px0 - 3, pTop - 2, px1 + 3, floorTop - 1, M.STONE);    // solid pit host
+    fill(grid, px0, pTop, px1, floorTop - 2, M.EMPTY);               // hollow it
+    fill(grid, px0, floorTop - 8, px1, floorTop - 2, M.WATER);       // quench water
+  },
+
+  // FOUR CORNERS -------------------------------------------------------------
+  // No fragile chain — a self-heating LAVA spire stands dead center in a stone
+  // chimney and radiates heat, while four independent reactions run in the four
+  // corners, each a different material's signature trick: NW a gunpowder shelf
+  // the spire's heat can reach; NE an LN2 reservoir whose floor touches the hot
+  // chimney and boils to fog; SW a tar pit that slowly catches; SE a mercury pool
+  // with a metal block half-sunk that amalgamates. One legible source, four
+  // parallel payoffs, all visible at once.
   RubeGoldberg(grid, rng, d) {
     const W = grid.w, H = grid.h;
     grid.clear();
 
     const floorTop = H - 12;
-    fill(grid, 0, floorTop, W - 1, H - 1, M.CONCRETE);
+    fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
+    const cx = W >> 1;
 
-    // Stage 1 (top-left): spark -> gunpowder mortar. Concrete tube open at top.
-    const g0 = 24, g1 = 44, gTop = floorTop - 70, gBot = floorTop - 30;
-    fill(grid, g0 - 4, gTop - 2, g1 + 4, gBot + 4, M.CONCRETE);      // mortar body
-    fill(grid, g0, gTop, g1, gBot, M.EMPTY);                         // bore
-    fill(grid, g0, gBot - 16, g1, gBot, M.GUNPOWDER);                // charge at the bore bottom
-    grid.set((g0 + g1) >> 1, gBot - 1, M.SPARK);                    // igniter buried in the charge
+    // Central lava spire in a stone chimney — the self-heating source.
+    const chx0 = cx - 8, chx1 = cx + 8, chTop = 40, chBot = floorTop - 1;
+    fill(grid, chx0 - 4, chTop - 2, chx1 + 4, chBot, M.STONE);        // chimney host
+    fill(grid, chx0, chTop, chx1, chBot - 1, M.LAVA);                // molten core
 
-    // Stage 2 (upper-mid): thermite cutting-charge on a steel shelf.
-    const shelfY = gTop - 2, sx0 = 70, sx1 = 120;
-    fill(grid, sx0, shelfY, sx1, shelfY + 2, M.METAL);              // continuous steel shelf
-    fill(grid, sx0 + 6, shelfY - 10, sx1 - 6, shelfY - 1, M.THERMITE); // thermite on the shelf
+    // NW: a gunpowder shelf the radiating heat can reach.
+    fill(grid, 40, 60, 88, 64, M.STONE);                             // shelf
+    fill(grid, 46, 52, 82, 59, M.GUNPOWDER);                         // charge
 
-    // Stage 3 (mid-right): the shelf is the FLOOR of an LN2 reservoir.
-    const r0 = sx0 + 4, r1 = sx1 - 4, rTop = shelfY - 42, rBot = shelfY - 11;
-    fill(grid, r0 - 3, rTop - 3, r1 + 3, rBot, M.CONCRETE);         // reservoir walls
-    fill(grid, r0, rTop, r1, rBot - 1, M.EMPTY);                    // hollow
-    fill(grid, r0, rTop + 8, r1, rBot - 1, M.LIQUID_NITROGEN);      // held-back cryo charge
+    // NE: an LN2 reservoir whose floor touches the hot chimney -> boils to fog.
+    const r0 = 232, r1 = 280, rTop = 48, rBot = 78;
+    fill(grid, r0 - 3, rTop - 3, r1 + 3, rBot, M.STONE);             // reservoir walls
+    fill(grid, r0, rTop, r1, rBot - 1, M.EMPTY);                     // hollow
+    fill(grid, r0, rTop + 6, r1, rBot - 1, M.LIQUID_NITROGEN);       // cryo charge
 
-    // Stage 4 (below shelf): warm water catch pool that flash-freezes.
-    const w0 = 64, w1 = 126, wTop = floorTop - 24, wBot = floorTop - 1;
-    fill(grid, w0 - 4, wTop - 2, w1 + 4, wBot, M.CONCRETE);
-    fill(grid, w0, wTop, w1, wBot - 1, M.EMPTY);
-    fill(grid, w0, wTop + 6, w1, wBot - 1, M.WATER);                // 22C water -> ice + cold fog
+    // SW: a tar pit that slowly catches from the ambient heat.
+    fill(grid, 36, floorTop - 8, 96, floorTop - 1, M.TAR);
 
-    // Stage 5 (far right): a mercury bead perched above a descending concrete ramp.
-    const px = 150;
-    disc(grid, px, floorTop - 40, 2, M.MERCURY);                    // perched bead
-    grid.set(px + 1, floorTop - 38, M.CONCRETE);                    // tiny detent
-    for (let k = 0; k < 8; k++) {                                    // descending staircase
-      const rx = px + 6 + k * 18, ry = floorTop - 36 + k * 3;
-      fill(grid, rx, ry, rx + 16, ry + 2, M.CONCRETE);
-    }
-    // Final catch basin bottom-right.
-    const c0 = W - 40, c1 = W - 8, cTop = floorTop - 14;
-    fill(grid, c0 - 3, cTop - 2, c1 + 3, floorTop - 1, M.CONCRETE);
-    fill(grid, c0, cTop, c1, floorTop - 2, M.EMPTY);
+    // SE: a mercury pool with a metal block half-sunk that amalgamates.
+    fill(grid, 224, floorTop - 8, 288, floorTop - 1, M.MERCURY);
+    fill(grid, 248, floorTop - 14, 264, floorTop - 9, M.METAL);
+
+    // Frame-one heat wisps rising off the spire so it reads live.
+    for (let n = 0; n < 5; n++)
+      grid.set(cx - 4 + rng.int(9), chTop - 2 - rng.int(5), M.FIRE);
   },
 
   // EMPTY --------------------------------------------------------------------

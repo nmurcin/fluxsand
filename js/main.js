@@ -94,6 +94,7 @@ function publishState() {
     lastScenario,
     changes: sim.lastChanges,
     reactions: sim.lastReactions,
+    blasts: sim.lastBlasts,
   };
 }
 

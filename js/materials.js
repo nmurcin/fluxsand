@@ -60,6 +60,8 @@ export const M = {
   CONCRETE: 38,
   RUST: 39,
   NAPALM: 40,
+  // blast/damage
+  DENTED_METAL: 41,
 };
 
 // color: base RGB [r,g,b] at "cool" temperature.
@@ -76,111 +78,111 @@ export const M = {
 
 export const MATERIALS = [
   // 0 EMPTY (air) — a poor conductor, like real air/gas
-  { id: 0, name: 'empty', phase: PHASE.EMPTY, color: [11, 13, 18], density: 0,
+  { id: 0, name: 'empty', phase: PHASE.EMPTY, color: [24, 20, 37], density: 0,
     conduct: 0.03, heatCap: 1.0, glow: 0 },
 
   // 1 SAND — warm ochre powder; melts to glass at high heat
   // heatCap 0.8: silica c_p ~700 J/kgK ~= 0.17x water; kept a touch high for feel.
-  { id: 1, name: 'sand', phase: PHASE.POWDER, color: [201, 164, 92], density: 12,
+  { id: 1, name: 'sand', phase: PHASE.POWDER, color: [228, 166, 114], density: 12,
     conduct: 0.22, heatCap: 0.8, melt: 1200, latentMelt: 90, meltTo: () => M.MOLTEN_GLASS,
     repose: 0.55, glow: 0 },
 
   // 2 WATER — translucent teal; freezes / boils with real-ratio latent heats.
   // latentFreeze 34 vs latentBoil 226 encodes real fusion:vaporization ~1:6.75.
-  { id: 2, name: 'water', phase: PHASE.LIQUID, color: [58, 132, 178], density: 10,
+  { id: 2, name: 'water', phase: PHASE.LIQUID, color: [0, 153, 219], density: 10,
     conduct: 0.55, heatCap: 4.18, freeze: 0, latentFreeze: 34,
     boil: 100, latentBoil: 226, boilTo: () => M.STEAM, freezeTo: () => M.ICE,
     quench: true, viscosity: 0.02, glow: 0 },
 
   // 3 STONE — inert solid; melts to lava. heatCap 1.0: basalt ~900 J/kgK ~= 0.22x water.
-  { id: 3, name: 'stone', phase: PHASE.SOLID, color: [110, 112, 122], density: 40,
+  { id: 3, name: 'stone', phase: PHASE.SOLID, color: [139, 155, 180], density: 40,
     conduct: 0.30, heatCap: 1.0, melt: 1150, latentMelt: 80, meltTo: () => M.LAVA, glow: 0 },
 
   // 4 LAVA — crimson->orange liquid; freezes to stone; ignites; melts metal on contact
   // viscosity 0.9: real basaltic lava is ~10^4-10^5x water viscosity — it creeps.
-  { id: 4, name: 'lava', phase: PHASE.LIQUID, color: [190, 52, 28], density: 32,
+  { id: 4, name: 'lava', phase: PHASE.LIQUID, color: [247, 118, 34], density: 32,
     conduct: 0.30, heatCap: 1.0, freeze: 700, latentFreeze: 80, freezeTo: () => M.STONE,
     baseTemp: 1150, viscosity: 0.9, glow: 1.0, heatColor: true, ignitesNeighbors: true },
 
   // 5 ICE — pale solid; melts to water. latentMelt 34 = water's latent heat of fusion.
-  { id: 5, name: 'ice', phase: PHASE.SOLID, color: [176, 214, 232], density: 9,
+  { id: 5, name: 'ice', phase: PHASE.SOLID, color: [44, 232, 245], density: 9,
     conduct: 0.35, heatCap: 2.0, melt: 0, latentMelt: 34, meltTo: () => M.WATER,
     baseTemp: -12, glow: 0 },
 
   // 6 STEAM — luminous white gas; rises; condenses back to water when cool.
   // conduct 0.04: real steam k ~0.027 W/mK is ~22x below liquid water — gases are
   // the WORST conductors, so hot gas must NOT dump heat into neighbors quickly.
-  { id: 6, name: 'steam', phase: PHASE.GAS, color: [214, 224, 232], density: 2,
+  { id: 6, name: 'steam', phase: PHASE.GAS, color: [192, 203, 220], density: 2,
     conduct: 0.04, heatCap: 2.0, condense: 90, condenseTo: () => M.WATER,
     baseTemp: 110, lifetime: 900, glow: 0.08 },
 
   // 7 OIL — dark iridescent liquid; highly flammable
   // viscosity 0.35: motor/crude oil is ~10-100x water — flows, but slower.
-  { id: 7, name: 'oil', phase: PHASE.LIQUID, color: [70, 54, 40], density: 8,
+  { id: 7, name: 'oil', phase: PHASE.LIQUID, color: [115, 62, 57], density: 8,
     conduct: 0.20, heatCap: 1.9, flammable: true, ignite: 180, flammability: 0.04, burnTo: () => M.FIRE,
     viscosity: 0.35, glow: 0 },
 
   // 8 FIRE — hot plasma gas; short-lived; ignites; decays to smoke/ember.
   // conduct 0.05 (gas): fire heats neighbors via the strong CONTACT term in
   // igniteAround, not via bulk diffusion, so keep its diffusive conduct low.
-  { id: 8, name: 'fire', phase: PHASE.GAS, color: [255, 148, 42], density: 1,
+  { id: 8, name: 'fire', phase: PHASE.GAS, color: [255, 137, 51], density: 1,
     conduct: 0.05, heatCap: 0.7, baseTemp: 820, glow: 1.0, heatColor: true,
     lifetime: 90, ignitesNeighbors: true, decayTo: () => M.SMOKE },
 
   // 9 WOOD — solid fuel; burns to ember/ash. Dry wood c_p is genuinely high (~1.0-1.6).
-  { id: 9, name: 'wood', phase: PHASE.SOLID, color: [120, 82, 46], density: 20,
+  { id: 9, name: 'wood', phase: PHASE.SOLID, color: [184, 111, 80], density: 20,
     conduct: 0.12, heatCap: 1.3, flammable: true, ignite: 250, flammability: 0.06, burnTo: () => M.EMBER,
     glow: 0 },
 
   // 10 METAL — steel solid; conducts heat fast; glows then melts.
   // heatCap 0.5: steel c_p ~500 J/kgK ~= 0.12x water; low cap => heats/melts readily.
-  { id: 10, name: 'metal', phase: PHASE.SOLID, color: [150, 158, 170], density: 60,
+  { id: 10, name: 'metal', phase: PHASE.SOLID, color: [168, 181, 178], density: 60,
     conduct: 0.92, heatCap: 0.5, melt: 1400, latentMelt: 120, meltTo: () => M.MOLTEN_METAL,
     heatColor: true, glow: 0 },
 
   // 11 MOLTEN_METAL — glowing liquid; freezes back to metal. viscosity 0.5:
   // molten steel is runnier than lava but still notably thicker than water.
-  { id: 11, name: 'molten_metal', phase: PHASE.LIQUID, color: [232, 120, 40], density: 55,
+  { id: 11, name: 'molten_metal', phase: PHASE.LIQUID, color: [254, 174, 52], density: 55,
     conduct: 0.9, heatCap: 0.5, viscosity: 0.5, freeze: 1350, latentFreeze: 120, freezeTo: () => M.METAL,
     baseTemp: 1500, glow: 1.0, heatColor: true },
 
   // 12 SMOKE — gray gas; rises and dissipates. conduct 0.03 (gas, poor conductor).
-  { id: 12, name: 'smoke', phase: PHASE.GAS, color: [80, 82, 90], density: 2,
+  { id: 12, name: 'smoke', phase: PHASE.GAS, color: [90, 105, 136], density: 2,
     conduct: 0.03, heatCap: 1.0, baseTemp: 120, lifetime: 620, glow: 0 },
 
   // 13 OBSIDIAN — glassy black solid; made when lava is quenched by water.
   // melt 1200 (>= stone 1150): silica glass softens at/above basalt, not below.
-  { id: 13, name: 'obsidian', phase: PHASE.SOLID, color: [28, 24, 38], density: 42,
+  { id: 13, name: 'obsidian', phase: PHASE.SOLID, color: [24, 20, 37], density: 42,
     conduct: 0.28, heatCap: 1.0, melt: 1200, latentMelt: 90, meltTo: () => M.LAVA, glow: 0 },
 
   // 14 SALT — white powder; lowers water freeze point (chemistry nod), melts high
-  { id: 14, name: 'salt', phase: PHASE.POWDER, color: [225, 226, 232], density: 11,
+  { id: 14, name: 'salt', phase: PHASE.POWDER, color: [255, 255, 255], density: 11,
     conduct: 0.2, heatCap: 1.3, repose: 0.6, dissolves: true, glow: 0 },
 
   // 15 EMBER — glowing burning wood; radiates heat, decays to ash
-  { id: 15, name: 'ember', phase: PHASE.SOLID, color: [206, 74, 30], density: 18,
+  { id: 15, name: 'ember', phase: PHASE.SOLID, color: [162, 38, 51], density: 18,
     conduct: 0.3, heatCap: 1.2, baseTemp: 700, glow: 0.9, heatColor: true,
     lifetime: 260, ignitesNeighbors: true, decayTo: () => M.ASH },
 
   // 16 ASH — light gray powder residue
-  { id: 16, name: 'ash', phase: PHASE.POWDER, color: [96, 92, 92], density: 6,
+  { id: 16, name: 'ash', phase: PHASE.POWDER, color: [93, 93, 93], density: 6,
     conduct: 0.12, heatCap: 0.9, repose: 0.5, glow: 0 },
 
   // 17 GLASS — transparent-ish solid from cooled molten glass
-  { id: 17, name: 'glass', phase: PHASE.SOLID, color: [150, 196, 200], density: 24,
+  { id: 17, name: 'glass', phase: PHASE.SOLID, color: [192, 203, 220], density: 24,
     conduct: 0.3, heatCap: 0.8, melt: 1150, latentMelt: 90, meltTo: () => M.MOLTEN_GLASS, glow: 0 },
 
   // 18 MOLTEN_GLASS — glowing viscous liquid; freezes to glass
-  { id: 18, name: 'molten_glass', phase: PHASE.LIQUID, color: [230, 150, 90], density: 22,
+  { id: 18, name: 'molten_glass', phase: PHASE.LIQUID, color: [254, 174, 52], density: 22,
     conduct: 0.35, heatCap: 0.8, freeze: 1000, latentFreeze: 90, freezeTo: () => M.GLASS,
     baseTemp: 1250, viscosity: 0.96, glow: 0.9, heatColor: true },
 
   // 19 ACID — corrosive green liquid; dissolves stone/metal (stretch chemistry)
-  { id: 19, name: 'acid', phase: PHASE.LIQUID, color: [120, 210, 60], density: 9,
+  { id: 19, name: 'acid', phase: PHASE.LIQUID, color: [99, 199, 77], density: 9,
     conduct: 0.3, heatCap: 2.0, corrosive: true, viscosity: 0.08, glow: 0.05 },
 
   // 20 PLANT — green solid; grows into adjacent water, flammable
-  { id: 20, name: 'plant', phase: PHASE.SOLID, color: [70, 150, 66], density: 14,
+  { id: 20, name: 'plant', phase: PHASE.SOLID, color: [62, 137, 72], density: 14,
     conduct: 0.12, heatCap: 1.6, flammable: true, ignite: 220, flammability: 0.05, burnTo: () => M.FIRE,
     grows: true, glow: 0 },
 
@@ -192,100 +194,107 @@ export const MATERIALS = [
   // ~199 kJ/kg is tiny vs water's 2.26 MJ/kg, so it flashes off fast when warmed.
   // baseTemp -205 (below its -196 boil point) so a fresh pour stays liquid and
   // has time to flash-freeze neighbors before it warms up and boils to nitrogen.
-  { id: 21, name: 'liquid_nitrogen', phase: PHASE.LIQUID, color: [126, 208, 236], density: 7,
+  { id: 21, name: 'liquid_nitrogen', phase: PHASE.LIQUID, color: [44, 232, 245], density: 7,
     conduct: 0.5, heatCap: 2.05, viscosity: 0.05, baseTemp: -205,
     boil: -196, latentBoil: 20, boilTo: () => M.NITROGEN, glow: 0 },
 
   // 22 NITROGEN — cold inert gas boiled off LN2; light, rises, dissipates.
-  { id: 22, name: 'nitrogen', phase: PHASE.GAS, color: [200, 214, 224], density: 2,
+  { id: 22, name: 'nitrogen', phase: PHASE.GAS, color: [192, 203, 220], density: 2,
     conduct: 0.04, heatCap: 1.04, baseTemp: -150, condense: -190, condenseTo: () => M.LIQUID_NITROGEN,
     lifetime: 500, glow: 0 },
 
   // 23 DRY_ICE — solid CO2; sublimates straight to CO2 gas at -78C (no liquid at 1 atm).
-  { id: 23, name: 'dry_ice', phase: PHASE.SOLID, color: [222, 230, 236], density: 15,
+  { id: 23, name: 'dry_ice', phase: PHASE.SOLID, color: [255, 255, 255], density: 15,
     conduct: 0.25, heatCap: 0.85, baseTemp: -78, melt: -78, latentMelt: 25, meltTo: () => M.CO2, glow: 0 },
 
   // 24 CO2 — the HEAVIEST gas (density 5 > steam/smoke/nitrogen): sinks and pools,
   // creeping downhill to smother fire from below. Its signature novelty among gases.
   // color: a faint greenish-gray, distinct from metal/concrete grays so the
   // heavy fog reads as a gas, not a solid.
-  { id: 24, name: 'co2', phase: PHASE.GAS, color: [126, 150, 138], density: 5,
+  { id: 24, name: 'co2', phase: PHASE.GAS, color: [139, 155, 180], density: 5,
     conduct: 0.04, heatCap: 0.85, baseTemp: 18, lifetime: 600, glow: 0 },
 
   // 25 GUNPOWDER — black powder; ignites ~200C, deflagrates + EXPLODES (via reactions).
   // flammability 0.9: a loose energetic powder catches fast once hot (dust-like).
-  { id: 25, name: 'gunpowder', phase: PHASE.POWDER, color: [58, 58, 64], density: 12,
+  { id: 25, name: 'gunpowder', phase: PHASE.POWDER, color: [58, 68, 102], density: 12,
     conduct: 0.15, heatCap: 1.0, repose: 0.5, flammable: true, ignite: 200, flammability: 0.9,
     explosive: 3, burnTo: () => M.FIRE, glow: 0 },
 
   // 26 THERMITE — inert powder until a very hot starter (>=900C) sets it off; then
   // reactions turn it into molten_metal at ~2500C, hot enough to melt through steel.
-  { id: 26, name: 'thermite', phase: PHASE.POWDER, color: [128, 96, 72], density: 16,
+  { id: 26, name: 'thermite', phase: PHASE.POWDER, color: [184, 111, 80], density: 16,
     conduct: 0.2, heatCap: 0.9, repose: 0.55, flammable: true, ignite: 900, burnTo: () => M.MOLTEN_METAL, glow: 0 },
 
   // 27 GASOLINE — very runny, lighter than water/oil (floats). Volatile: once it
   // reaches ~110C it catches readily (flammability 0.45), so a spark flashes a whole
   // slick — but it no longer self-ignites at room temperature (ignite was 45C, a bug).
-  { id: 27, name: 'gasoline', phase: PHASE.LIQUID, color: [188, 168, 96], density: 6,
+  { id: 27, name: 'gasoline', phase: PHASE.LIQUID, color: [234, 212, 170], density: 6,
     conduct: 0.2, heatCap: 1.1, viscosity: 0.02, flammable: true, ignite: 110, flammability: 0.45, burnTo: () => M.FIRE, glow: 0 },
 
   // 28 TAR — near-solid ultra-viscous liquid (bitumen); forms sticky pits; burns sooty.
-  { id: 28, name: 'tar', phase: PHASE.LIQUID, color: [24, 22, 26], density: 11,
+  { id: 28, name: 'tar', phase: PHASE.LIQUID, color: [24, 20, 37], density: 11,
     conduct: 0.12, heatCap: 1.4, viscosity: 0.97, flammable: true, ignite: 300, flammability: 0.02, burnTo: () => M.FIRE, glow: 0 },
 
   // 29 MERCURY — the DENSEST material (70): sinks under everything. Near-zero heatCap
   // (0.14) => snaps to any temperature instantly; conducts like a metal.
-  { id: 29, name: 'mercury', phase: PHASE.LIQUID, color: [190, 194, 200], density: 70,
+  { id: 29, name: 'mercury', phase: PHASE.LIQUID, color: [192, 203, 220], density: 70,
     conduct: 0.85, heatCap: 0.14, viscosity: 0.1, freeze: -39, latentFreeze: 10, freezeTo: () => M.METAL,
     boil: 357, latentBoil: 15, boilTo: () => M.SMOKE, glow: 0 },
 
   // 30 LYE — alkaline base; neutralizes acid to salt+water (exothermic). density 10.
-  { id: 30, name: 'lye', phase: PHASE.LIQUID, color: [150, 120, 190], density: 10,
+  { id: 30, name: 'lye', phase: PHASE.LIQUID, color: [181, 80, 136], density: 10,
     conduct: 0.32, heatCap: 2.0, viscosity: 0.15, glow: 0.05 },
 
   // 31 SNOW — lightest powder (4); heaps into steep drifts; melts to water easily; insulator.
-  { id: 31, name: 'snow', phase: PHASE.POWDER, color: [238, 244, 250], density: 4,
+  { id: 31, name: 'snow', phase: PHASE.POWDER, color: [255, 255, 255], density: 4,
     conduct: 0.15, heatCap: 2.0, repose: 0.7, baseTemp: -5, melt: 0, latentMelt: 20, meltTo: () => M.WATER, glow: 0 },
 
   // 32 COAL — solid fuel; high ignite (400C); burns to a long-lived ember (forge fuel).
-  { id: 32, name: 'coal', phase: PHASE.SOLID, color: [40, 38, 42], density: 22,
+  { id: 32, name: 'coal', phase: PHASE.SOLID, color: [38, 43, 68], density: 22,
     conduct: 0.1, heatCap: 1.3, flammable: true, ignite: 400, flammability: 0.02, burnTo: () => M.EMBER, glow: 0 },
 
   // 33 CONCRETE_WET — thick slurry that cures to solid concrete over time (via reactions).
-  { id: 33, name: 'concrete_wet', phase: PHASE.LIQUID, color: [140, 138, 132], density: 20,
+  { id: 33, name: 'concrete_wet', phase: PHASE.LIQUID, color: [90, 105, 136], density: 20,
     conduct: 0.3, heatCap: 1.2, viscosity: 0.78, cures: true, glow: 0 },
 
   // 34 SPARK — electric arc; brilliant, ephemeral (lifetime 6), STATIC (doesn't
   // drift — propagates by reaction, jumping along metal/mercury conductors).
-  { id: 34, name: 'spark', phase: PHASE.GAS, color: [255, 246, 180], density: 1,
+  { id: 34, name: 'spark', phase: PHASE.GAS, color: [254, 231, 97], density: 1,
     conduct: 0.1, heatCap: 0.5, baseTemp: 600, lifetime: 6, static: true,
     glow: 1.0, heatColor: true, decayTo: () => M.EMPTY },
 
   // 35 MOLD — living blight; creeps over organics in a living temp band; dies to fire/frost.
-  { id: 35, name: 'mold', phase: PHASE.SOLID, color: [96, 128, 72], density: 13,
+  { id: 35, name: 'mold', phase: PHASE.SOLID, color: [38, 92, 66], density: 13,
     conduct: 0.12, heatCap: 1.5, flammable: true, ignite: 200, flammability: 0.04, burnTo: () => M.FIRE, glow: 0 },
 
   // 36 WAX — low-melt solid; liquefies at candle warmth (~60C) into molten_wax.
-  { id: 36, name: 'wax', phase: PHASE.SOLID, color: [236, 226, 196], density: 13,
+  { id: 36, name: 'wax', phase: PHASE.SOLID, color: [234, 212, 170], density: 13,
     conduct: 0.1, heatCap: 1.6, melt: 60, latentMelt: 25, meltTo: () => M.MOLTEN_WAX,
     flammable: true, ignite: 250, flammability: 0.03, burnTo: () => M.FIRE, glow: 0 },
 
   // 37 MOLTEN_WAX — pale runny liquid; re-freezes to wax when it cools below 55C.
-  { id: 37, name: 'molten_wax', phase: PHASE.LIQUID, color: [246, 236, 210], density: 12,
+  { id: 37, name: 'molten_wax', phase: PHASE.LIQUID, color: [254, 231, 97], density: 12,
     conduct: 0.1, heatCap: 1.6, viscosity: 0.4, freeze: 55, latentFreeze: 20, freezeTo: () => M.WAX,
     flammable: true, ignite: 250, flammability: 0.06, burnTo: () => M.FIRE, glow: 0 },
 
   // 38 CONCRETE — cured solid; stone-like, inert.
-  { id: 38, name: 'concrete', phase: PHASE.SOLID, color: [156, 152, 146], density: 40,
+  { id: 38, name: 'concrete', phase: PHASE.SOLID, color: [139, 155, 180], density: 40,
     conduct: 0.3, heatCap: 1.0, melt: 1150, latentMelt: 80, meltTo: () => M.LAVA, glow: 0 },
 
   // 39 RUST — flaky orange corrosion product of metal + water; acid-soluble.
-  { id: 39, name: 'rust', phase: PHASE.POWDER, color: [150, 78, 42], density: 18,
+  { id: 39, name: 'rust', phase: PHASE.POWDER, color: [190, 74, 47], density: 18,
     conduct: 0.2, heatCap: 1.0, repose: 0.5, glow: 0 },
 
   // 40 NAPALM — sticky flammable liquid; catches from any flame and self-reignites.
-  { id: 40, name: 'napalm', phase: PHASE.LIQUID, color: [180, 120, 60], density: 9,
+  { id: 40, name: 'napalm', phase: PHASE.LIQUID, color: [255, 137, 51], density: 9,
     conduct: 0.18, heatCap: 1.5, viscosity: 0.6, flammable: true, ignite: 150, flammability: 0.4, burnTo: () => M.FIRE, glow: 0 },
+
+  // 41 DENTED_METAL — steel that a blast has buckled but not breached. A second
+  // hit breaches it (-> empty). Visually darker/rougher than clean metal. Still a
+  // solid; conducts and melts like metal.
+  { id: 41, name: 'dented_metal', phase: PHASE.SOLID, color: [90, 105, 136], density: 60,
+    conduct: 0.9, heatCap: 0.5, melt: 1400, latentMelt: 120, meltTo: () => M.MOLTEN_METAL,
+    heatColor: true, glow: 0 },
 ];
 
 // Fast lookup by name (used by tools/UI and scenarios).

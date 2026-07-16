@@ -12,6 +12,7 @@ import { MATERIALS, M, PHASE } from './materials.js';
 import { Thermal } from './thermal.js';
 import { ReactionEngine } from './reactions.js';
 import { REACTION_RULES } from './reaction_rules.js';
+import { Blast } from './blast.js';
 
 export class Sim {
   constructor(grid, rng) {
@@ -19,11 +20,13 @@ export class Sim {
     this.rng = rng;
     this.thermal = new Thermal(grid);
     this.reactions = new ReactionEngine(REACTION_RULES);
+    this.blast = new Blast(grid, rng);
     this.tick = 0;
     this.thermalSubsteps = 3;
     // counters exposed to the HUD / tests
     this.lastChanges = 0;
     this.lastReactions = 0;
+    this.lastBlasts = 0;
   }
 
   step() {
@@ -36,6 +39,9 @@ export class Sim {
     // water, thermite igniting, quenches) gets first crack before a cell would
     // otherwise boil/melt itself away this tick.
     this.lastReactions = this.reactionPass();
+    // Detonations queued during the reaction pass resolve now, as one batch, so an
+    // explosion is a single coherent radial event rather than order-dependent.
+    this.lastBlasts = this.blast.hasPending() ? this.blast.resolveAll() : 0;
     this.lastChanges = this.thermal.phaseChanges(1.0);
     this.lifetimePass();
 
@@ -255,6 +261,23 @@ export class Sim {
           }
         }
 
+        // 1b) EXPLOSIVE contact detonation: an explosive (gunpowder) touching an
+        //     active flame source (fire/ember/spark/lava) detonates immediately —
+        //     this is the deflagration chain that lets a lit corner rip across a
+        //     packed charge cell-to-cell. Queue a blast and convert to fire.
+        if (d.explosive) {
+          let touched = false;
+          for (let k = 0; k < n; k++) {
+            const nid = mat[nbuf[k]];
+            if (nid === M.FIRE || nid === M.EMBER || nid === M.SPARK || nid === M.LAVA) { touched = true; break; }
+          }
+          if (touched) {
+            this.blast.queue(x, y, 2.2, d.explosive);
+            g.convert(i, M.FIRE, false); temp[i] = 800;
+            count++; continue;
+          }
+        }
+
         // 2) IGNITION (probabilistic + hard backstop). A flammable cell catches
         //    with probability p = flammability * over, where over ramps 0..1 as its
         //    temperature rises from `ignite` to `ignite + IGNITE_SCALE`. At ambient
@@ -266,12 +289,19 @@ export class Sim {
           const t = temp[i];
           const IGNITE_SCALE = 120;                  // deg C span from smolder to sure-catch
           const hardAuto = d.ignite + 450;           // guaranteed auto-ignition backstop
+          let lit = false;
           if (t >= hardAuto) {
-            g.convert(i, d.burnTo(), false); count++; continue;
+            lit = true;
           } else if (t >= d.ignite) {
             const over = Math.min(1, (t - d.ignite) / IGNITE_SCALE);
             const flam = d.flammability !== undefined ? d.flammability : 0.05;
-            if (this.rng.chance(flam * over)) { g.convert(i, d.burnTo(), false); count++; continue; }
+            if (this.rng.chance(flam * over)) lit = true;
+          }
+          if (lit) {
+            // EXPLOSIVE materials (gunpowder) detonate: queue a radial blast at this
+            // cell before converting it. `explosive` is the blast radius.
+            if (d.explosive) this.blast.queue(x, y, 2.2, d.explosive);
+            g.convert(i, d.burnTo(), false); count++; continue;
           }
         }
 
