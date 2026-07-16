@@ -117,7 +117,7 @@ export const MATERIALS = [
   // 7 OIL — dark iridescent liquid; highly flammable
   // viscosity 0.35: motor/crude oil is ~10-100x water — flows, but slower.
   { id: 7, name: 'oil', phase: PHASE.LIQUID, color: [70, 54, 40], density: 8,
-    conduct: 0.20, heatCap: 1.9, flammable: true, ignite: 180, burnTo: () => M.FIRE,
+    conduct: 0.20, heatCap: 1.9, flammable: true, ignite: 180, flammability: 0.04, burnTo: () => M.FIRE,
     viscosity: 0.35, glow: 0 },
 
   // 8 FIRE — hot plasma gas; short-lived; ignites; decays to smoke/ember.
@@ -129,7 +129,7 @@ export const MATERIALS = [
 
   // 9 WOOD — solid fuel; burns to ember/ash. Dry wood c_p is genuinely high (~1.0-1.6).
   { id: 9, name: 'wood', phase: PHASE.SOLID, color: [120, 82, 46], density: 20,
-    conduct: 0.12, heatCap: 1.3, flammable: true, ignite: 250, burnTo: () => M.EMBER,
+    conduct: 0.12, heatCap: 1.3, flammable: true, ignite: 250, flammability: 0.06, burnTo: () => M.EMBER,
     glow: 0 },
 
   // 10 METAL — steel solid; conducts heat fast; glows then melts.
@@ -181,7 +181,7 @@ export const MATERIALS = [
 
   // 20 PLANT — green solid; grows into adjacent water, flammable
   { id: 20, name: 'plant', phase: PHASE.SOLID, color: [70, 150, 66], density: 14,
-    conduct: 0.12, heatCap: 1.6, flammable: true, ignite: 220, burnTo: () => M.FIRE,
+    conduct: 0.12, heatCap: 1.6, flammable: true, ignite: 220, flammability: 0.05, burnTo: () => M.FIRE,
     grows: true, glow: 0 },
 
   // ====================== EXPANSION ROSTER =============================
@@ -212,22 +212,26 @@ export const MATERIALS = [
   { id: 24, name: 'co2', phase: PHASE.GAS, color: [126, 150, 138], density: 5,
     conduct: 0.04, heatCap: 0.85, baseTemp: 18, lifetime: 600, glow: 0 },
 
-  // 25 GUNPOWDER — black powder; autoignites ~160C, deflagrates cell-to-cell (via reactions).
+  // 25 GUNPOWDER — black powder; ignites ~200C, deflagrates + EXPLODES (via reactions).
+  // flammability 0.9: a loose energetic powder catches fast once hot (dust-like).
   { id: 25, name: 'gunpowder', phase: PHASE.POWDER, color: [58, 58, 64], density: 12,
-    conduct: 0.15, heatCap: 1.0, repose: 0.5, flammable: true, ignite: 160, burnTo: () => M.FIRE, glow: 0 },
+    conduct: 0.15, heatCap: 1.0, repose: 0.5, flammable: true, ignite: 200, flammability: 0.9,
+    explosive: 3, burnTo: () => M.FIRE, glow: 0 },
 
   // 26 THERMITE — inert powder until a very hot starter (>=900C) sets it off; then
   // reactions turn it into molten_metal at ~2500C, hot enough to melt through steel.
   { id: 26, name: 'thermite', phase: PHASE.POWDER, color: [128, 96, 72], density: 16,
     conduct: 0.2, heatCap: 0.9, repose: 0.55, flammable: true, ignite: 900, burnTo: () => M.MOLTEN_METAL, glow: 0 },
 
-  // 27 GASOLINE — very runny, lighter than water/oil (floats), flashes at low temp.
+  // 27 GASOLINE — very runny, lighter than water/oil (floats). Volatile: once it
+  // reaches ~110C it catches readily (flammability 0.45), so a spark flashes a whole
+  // slick — but it no longer self-ignites at room temperature (ignite was 45C, a bug).
   { id: 27, name: 'gasoline', phase: PHASE.LIQUID, color: [188, 168, 96], density: 6,
-    conduct: 0.2, heatCap: 1.1, viscosity: 0.02, flammable: true, ignite: 45, burnTo: () => M.FIRE, glow: 0 },
+    conduct: 0.2, heatCap: 1.1, viscosity: 0.02, flammable: true, ignite: 110, flammability: 0.45, burnTo: () => M.FIRE, glow: 0 },
 
   // 28 TAR — near-solid ultra-viscous liquid (bitumen); forms sticky pits; burns sooty.
   { id: 28, name: 'tar', phase: PHASE.LIQUID, color: [24, 22, 26], density: 11,
-    conduct: 0.12, heatCap: 1.4, viscosity: 0.97, flammable: true, ignite: 300, burnTo: () => M.FIRE, glow: 0 },
+    conduct: 0.12, heatCap: 1.4, viscosity: 0.97, flammable: true, ignite: 300, flammability: 0.02, burnTo: () => M.FIRE, glow: 0 },
 
   // 29 MERCURY — the DENSEST material (70): sinks under everything. Near-zero heatCap
   // (0.14) => snaps to any temperature instantly; conducts like a metal.
@@ -245,7 +249,7 @@ export const MATERIALS = [
 
   // 32 COAL — solid fuel; high ignite (400C); burns to a long-lived ember (forge fuel).
   { id: 32, name: 'coal', phase: PHASE.SOLID, color: [40, 38, 42], density: 22,
-    conduct: 0.1, heatCap: 1.3, flammable: true, ignite: 400, burnTo: () => M.EMBER, glow: 0 },
+    conduct: 0.1, heatCap: 1.3, flammable: true, ignite: 400, flammability: 0.02, burnTo: () => M.EMBER, glow: 0 },
 
   // 33 CONCRETE_WET — thick slurry that cures to solid concrete over time (via reactions).
   { id: 33, name: 'concrete_wet', phase: PHASE.LIQUID, color: [140, 138, 132], density: 20,
@@ -259,17 +263,17 @@ export const MATERIALS = [
 
   // 35 MOLD — living blight; creeps over organics in a living temp band; dies to fire/frost.
   { id: 35, name: 'mold', phase: PHASE.SOLID, color: [96, 128, 72], density: 13,
-    conduct: 0.12, heatCap: 1.5, flammable: true, ignite: 200, burnTo: () => M.FIRE, glow: 0 },
+    conduct: 0.12, heatCap: 1.5, flammable: true, ignite: 200, flammability: 0.04, burnTo: () => M.FIRE, glow: 0 },
 
   // 36 WAX — low-melt solid; liquefies at candle warmth (~60C) into molten_wax.
   { id: 36, name: 'wax', phase: PHASE.SOLID, color: [236, 226, 196], density: 13,
     conduct: 0.1, heatCap: 1.6, melt: 60, latentMelt: 25, meltTo: () => M.MOLTEN_WAX,
-    flammable: true, ignite: 250, burnTo: () => M.FIRE, glow: 0 },
+    flammable: true, ignite: 250, flammability: 0.03, burnTo: () => M.FIRE, glow: 0 },
 
   // 37 MOLTEN_WAX — pale runny liquid; re-freezes to wax when it cools below 55C.
   { id: 37, name: 'molten_wax', phase: PHASE.LIQUID, color: [246, 236, 210], density: 12,
     conduct: 0.1, heatCap: 1.6, viscosity: 0.4, freeze: 55, latentFreeze: 20, freezeTo: () => M.WAX,
-    flammable: true, ignite: 250, burnTo: () => M.FIRE, glow: 0 },
+    flammable: true, ignite: 250, flammability: 0.06, burnTo: () => M.FIRE, glow: 0 },
 
   // 38 CONCRETE — cured solid; stone-like, inert.
   { id: 38, name: 'concrete', phase: PHASE.SOLID, color: [156, 152, 146], density: 40,
@@ -281,7 +285,7 @@ export const MATERIALS = [
 
   // 40 NAPALM — sticky flammable liquid; catches from any flame and self-reignites.
   { id: 40, name: 'napalm', phase: PHASE.LIQUID, color: [180, 120, 60], density: 9,
-    conduct: 0.18, heatCap: 1.5, viscosity: 0.6, flammable: true, ignite: 120, burnTo: () => M.FIRE, glow: 0 },
+    conduct: 0.18, heatCap: 1.5, viscosity: 0.6, flammable: true, ignite: 150, flammability: 0.4, burnTo: () => M.FIRE, glow: 0 },
 ];
 
 // Fast lookup by name (used by tools/UI and scenarios).

@@ -241,20 +241,38 @@ export class Sim {
         if (dn && rt) nbuf[n++] = i + w + 1;
         const nb = nbuf.slice(0, n);
 
-        // 1) Contact heating: materials that ignite neighbors (fire/ember/lava)
-        //    dump heat hard into cooler neighbors — a flame lick is intense locally.
+        // 1) Contact heating: hot igniters (fire/ember/lava) warm ONLY their 4
+        //    orthogonal neighbors, and gently. The old code dumped 45% of the
+        //    temp gap into all 8 neighbors every tick, which is non-conservative
+        //    and lets a shared cell receive from up to 8 sources at once -> runaway
+        //    heating + spontaneous combustion. A small orthogonal-only coupling
+        //    keeps flames locally hot without piling heat up. (see TPT/Sandspiel)
         if (d.ignitesNeighbors) {
-          for (let k = 0; k < n; k++) {
+          const ortho = (up ? 1 : 0) + (dn ? 1 : 0) + (lf ? 1 : 0) + (rt ? 1 : 0);
+          for (let k = 0; k < ortho; k++) {   // first `ortho` entries are the 4-neighbors
             const j = nbuf[k];
-            if (temp[j] < temp[i]) temp[j] += (temp[i] - temp[j]) * 0.45;
+            if (temp[j] < temp[i]) temp[j] += (temp[i] - temp[j]) * 0.30;
           }
         }
 
-        // 2) Self-ignition above ignite temp (flammables flash on their own)
-        if (d.flammable && d.ignite !== undefined && temp[i] >= d.ignite && d.burnTo) {
-          g.convert(i, d.burnTo(), false);
-          count++;
-          continue;
+        // 2) IGNITION (probabilistic + hard backstop). A flammable cell catches
+        //    with probability p = flammability * over, where over ramps 0..1 as its
+        //    temperature rises from `ignite` to `ignite + IGNITE_SCALE`. At ambient
+        //    (below `ignite`) over = 0 -> p = 0, so NOTHING spontaneously combusts.
+        //    Fire spreads organically: gas/gunpowder whoosh (high flammability),
+        //    wood/tar smolder (low). A separate HARD backstop guarantees ignition
+        //    once a cell is genuinely superheated (real auto-ignition).
+        if (d.flammable && d.ignite !== undefined && d.burnTo) {
+          const t = temp[i];
+          const IGNITE_SCALE = 120;                  // deg C span from smolder to sure-catch
+          const hardAuto = d.ignite + 450;           // guaranteed auto-ignition backstop
+          if (t >= hardAuto) {
+            g.convert(i, d.burnTo(), false); count++; continue;
+          } else if (t >= d.ignite) {
+            const over = Math.min(1, (t - d.ignite) / IGNITE_SCALE);
+            const flam = d.flammability !== undefined ? d.flammability : 0.05;
+            if (this.rng.chance(flam * over)) { g.convert(i, d.burnTo(), false); count++; continue; }
+          }
         }
 
         // 3) DATA-DRIVEN reactions: the generic engine handles all pairwise

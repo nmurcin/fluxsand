@@ -73,12 +73,18 @@ export class Thermal {
     // commit
     temp.set(B);
 
-    // gentle radiative loss toward ambient for very hot cells (so fires cool down)
+    // AMBIENT RELAXATION (TPT-style): every cell drifts slowly toward room temp
+    // each tick. This guarantees isolated hot cells decay and the whole grid can
+    // never drift hot — the single most reliable guard against runaway heating.
+    // Steady sources (lava, molten metal) below re-assert their own temperature,
+    // so this only bleeds off stray/accumulated heat, not the sources themselves.
     for (let i = 0; i < g.n; i++) {
       const d = MATERIALS[mat[i]];
+      if (d.id !== M.EMPTY) {
+        temp[i] -= (temp[i] - amb) * 0.005 * dt;
+      }
+      // extra radiative loss for very hot cells (glow scales with heat)
       if (d.glow > 0 || temp[i] > 300) {
-        // hot things radiate; stronger the hotter they are. Kept gentle so heat
-        // accumulates in neighbors (boiling/melting) rather than escaping to air.
         const over = temp[i] - amb;
         temp[i] -= over * 0.0012 * dt;
       }
