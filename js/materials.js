@@ -192,7 +192,7 @@ export const MATERIALS = [
   // ~199 kJ/kg is tiny vs water's 2.26 MJ/kg, so it flashes off fast when warmed.
   // baseTemp -205 (below its -196 boil point) so a fresh pour stays liquid and
   // has time to flash-freeze neighbors before it warms up and boils to nitrogen.
-  { id: 21, name: 'liquid_nitrogen', phase: PHASE.LIQUID, color: [173, 216, 240], density: 7,
+  { id: 21, name: 'liquid_nitrogen', phase: PHASE.LIQUID, color: [126, 208, 236], density: 7,
     conduct: 0.5, heatCap: 2.05, viscosity: 0.05, baseTemp: -205,
     boil: -196, latentBoil: 20, boilTo: () => M.NITROGEN, glow: 0 },
 
@@ -207,7 +207,9 @@ export const MATERIALS = [
 
   // 24 CO2 — the HEAVIEST gas (density 5 > steam/smoke/nitrogen): sinks and pools,
   // creeping downhill to smother fire from below. Its signature novelty among gases.
-  { id: 24, name: 'co2', phase: PHASE.GAS, color: [150, 156, 162], density: 5,
+  // color: a faint greenish-gray, distinct from metal/concrete grays so the
+  // heavy fog reads as a gas, not a solid.
+  { id: 24, name: 'co2', phase: PHASE.GAS, color: [126, 150, 138], density: 5,
     conduct: 0.04, heatCap: 0.85, baseTemp: 18, lifetime: 600, glow: 0 },
 
   // 25 GUNPOWDER — black powder; autoignites ~160C, deflagrates cell-to-cell (via reactions).

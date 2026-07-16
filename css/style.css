@@ -52,22 +52,40 @@ html, body {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted);
 }
 
-/* palette */
-.palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* palette — grouped, compact swatches so all 27 materials stay legible.
+   Renders at natural height; the whole #left dock scrolls (overflow-y:auto)
+   when the viewport is short, so this section never gets flex-squeezed. */
+.palette {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 0 0 auto;
+}
+.palette-group {
+  margin-top: 6px; margin-bottom: 2px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--muted);
+}
+.palette-group:first-child { margin-top: 0; }
+.palette-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
 .swatch {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
-  border-radius: 8px; padding: 7px 8px; cursor: pointer;
-  font-size: 12px; position: relative; transition: border-color .12s, transform .05s;
+  border-radius: 8px; padding: 6px 4px; cursor: pointer;
+  font-size: 10px; position: relative; transition: border-color .12s, transform .05s;
+  overflow: hidden;
 }
 .swatch:hover { border-color: #3a4055; }
 .swatch:active { transform: translateY(1px); }
 .swatch .chip {
-  width: 14px; height: 14px; border-radius: 4px; background: var(--sw);
+  width: 16px; height: 16px; border-radius: 4px; background: var(--sw);
   box-shadow: 0 0 8px color-mix(in srgb, var(--sw) 60%, transparent); flex: 0 0 auto;
 }
-.swatch .label { text-transform: capitalize; }
-.swatch .key { margin-left: auto; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.swatch .label {
+  text-transform: capitalize; text-align: center; line-height: 1.15;
+  max-width: 100%; overflow-wrap: anywhere; hyphens: none;
+}
+.swatch .key {
+  position: absolute; top: 3px; right: 5px;
+  color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums;
+}
 .swatch.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 
 /* brush */

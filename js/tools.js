@@ -8,19 +8,58 @@ export function initUI(ctx) {
   const { canvas, grid, FLUX, getState, setSelected, setBrush, setOverlay, togglePause, step, reset } = ctx;
 
   // --- build palette dock ---
+  // Local, UI-only grouping of the 27 palette materials into labeled sections.
+  // Order within/across groups preserves PALETTE order for the first 10 entries,
+  // so number keys 1-9 then 0 keep mapping to PALETTE[0..9] regardless of layout.
+  // Derived here in tools.js only; materials.js is never touched.
+  const PALETTE_GROUPS = [
+    { label: 'Basics', mats: ['sand', 'water', 'oil', 'lava', 'ice', 'wood', 'metal', 'stone'] },
+    { label: 'Fire', mats: ['gasoline', 'fire', 'gunpowder', 'thermite', 'napalm', 'coal', 'tar', 'spark'] },
+    { label: 'Cryo', mats: ['liquid_nitrogen', 'dry_ice', 'snow'] },
+    { label: 'Chem', mats: ['mercury', 'lye', 'acid', 'concrete_wet', 'salt'] },
+    { label: 'Life', mats: ['plant', 'mold', 'wax'] },
+  ];
+
+  // Key-badge label for a material: keys 1-9 then 0 map to the first 10 PALETTE
+  // entries; everything past index 9 gets no badge.
+  function keyLabel(name) {
+    const idx = PALETTE.indexOf(name);
+    if (idx < 0 || idx > 9) return '';
+    return idx === 9 ? '0' : String(idx + 1);
+  }
+
+  function makeSwatch(name) {
+    const id = BY_NAME[name];
+    const def = MATERIALS[id];
+    const el = document.createElement('button');
+    el.className = 'swatch';
+    el.dataset.mat = name;
+    const [r, g, b] = def.color;
+    el.style.setProperty('--sw', `rgb(${r},${g},${b})`);
+    const badge = keyLabel(name);
+    const label = name.replace(/_/g, ' '); // "liquid_nitrogen" -> "liquid nitrogen" (wraps, not truncates)
+    el.innerHTML =
+      `<span class="chip"></span><span class="label">${label}</span>` +
+      (badge ? `<span class="key">${badge}</span>` : '');
+    el.addEventListener('click', () => selectMat(name));
+    return el;
+  }
+
   const dock = document.getElementById('palette');
   if (dock) {
-    PALETTE.forEach((name, idx) => {
-      const id = BY_NAME[name];
-      const def = MATERIALS[id];
-      const el = document.createElement('button');
-      el.className = 'swatch';
-      el.dataset.mat = name;
-      const [r, g, b] = def.color;
-      el.style.setProperty('--sw', `rgb(${r},${g},${b})`);
-      el.innerHTML = `<span class="chip"></span><span class="label">${name}</span><span class="key">${idx < 9 ? idx + 1 : (idx === 9 ? 0 : '')}</span>`;
-      el.addEventListener('click', () => selectMat(name));
-      dock.appendChild(el);
+    PALETTE_GROUPS.forEach(group => {
+      const head = document.createElement('div');
+      head.className = 'palette-group';
+      head.textContent = group.label;
+      dock.appendChild(head);
+
+      const gridEl = document.createElement('div');
+      gridEl.className = 'palette-grid';
+      group.mats.forEach(name => {
+        if (BY_NAME[name] === undefined) return; // skip any name not in the table
+        gridEl.appendChild(makeSwatch(name));
+      });
+      dock.appendChild(gridEl);
     });
   }
 
