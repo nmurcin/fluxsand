@@ -11,6 +11,7 @@ import { Renderer } from './render.js';
 import { MATERIALS, M, PHASE, BY_NAME, PALETTE, matName, phaseName } from './materials.js';
 import { SCENARIOS, loadScenario } from './scenarios.js';
 import { initUI } from './tools.js';
+import { encodeScene, decodeScene, applyScene } from './share.js';
 
 export const GRID_W = 320;
 export const GRID_H = 200;
@@ -185,6 +186,18 @@ const FLUX = {
   },
   stateHash,
   totalEnergy() { return sim.thermal.totalEnergy(); },
+  // shareable scene URLs (fully static, no backend)
+  shareURL() {
+    const enc = encodeScene(grid, rng.seed);
+    const base = location.href.split('#')[0];
+    return base + '#' + enc;
+  },
+  loadHash(hash) {
+    const h = (hash || location.hash || '').replace(/^#/, '');
+    const dec = decodeScene(h);
+    if (dec && applyScene(grid, dec)) { rng.reseed(dec.seed); sim.tick = 0; lastScenario = 'shared'; publishState(); return true; }
+    return false;
+  },
   // replay a recorded input log [{tick, op, args}] from a clean reset+reseed
   replay(inputLog, seed = DEFAULT_SEED) {
     rafFrozen = true;
@@ -208,9 +221,15 @@ window.__FLUX = FLUX;
 
 // ---- boot ------------------------------------------------------------------
 function boot() {
-  // start with an inviting default scene so frame one is not empty
-  loadScenario('Volcano', grid, rng, { GRID_W, GRID_H });
-  lastScenario = 'Volcano';
+  // if the URL carries a shared scene, load it; otherwise an inviting default
+  let loadedShared = false;
+  if (location.hash && location.hash.indexOf('s=') >= 0) {
+    loadedShared = FLUX.loadHash(location.hash);
+  }
+  if (!loadedShared) {
+    loadScenario('Volcano', grid, rng, { GRID_W, GRID_H });
+    lastScenario = 'Volcano';
+  }
   initUI({
     canvas, grid, FLUX,
     getState: () => ({ selectedMaterial, brushSize, paused, overlay, fps, tick: sim.tick }),
