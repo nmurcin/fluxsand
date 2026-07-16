@@ -174,41 +174,53 @@ export const SCENARIOS = {
   },
 
   // THERMITE -----------------------------------------------------------------
-  // A row of steel billets on a stone floor. Each billet has an oil-soaked wick
-  // channel bored down into its top, capped with fire. Metal conducts heat
-  // fast (conduct 0.92): the fire lights the oil, the oil sustains a hot flame,
-  // the steel glows, banks latent heat, and finally slumps into molten metal.
+  // A steel foundry crucible: thin steel rods dipped into a molten-metal bath.
+  //
+  // Physics note that shaped this scene: steel melts at 1400C, but lava only
+  // holds ~1150C — lava physically CANNOT melt steel. Molten metal, however,
+  // is a persistent ~1500C source. And a THICK billet acts as a heat sink that
+  // never reaches melt. So the working recipe is THIN rods (2 cells) standing
+  // in a molten-metal bath: each rod cell is surrounded by 1500C liquid, banks
+  // its latent-melt energy fast, glows incandescent, and slumps into the bath.
+  // Oil-soaked wicks capped with fire ride on top for the ignition flash.
   Thermite(grid, rng, d) {
     const W = grid.w, H = grid.h;
     grid.clear();
 
-    const floorTop = H - 16;
+    const floorTop = H - 14;
     fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
 
-    const count = 5;
-    const blockW = 30;
-    const gap = (W - count * blockW) / (count + 1);
-    const blockTop = H - 66;
+    // Stone crucible with CONTINUOUS walls cradling a deep molten-metal bath.
+    const cxL = 30, cxR = W - 30;
+    const bathTop = H - 80, bathBot = floorTop - 1;                    // DEEP bath
+    fill(grid, cxL - 5, bathTop - 3, cxR + 5, bathBot + 1, M.STONE);   // solid host rock
+    fill(grid, cxL, bathTop, cxR, bathBot, M.MOLTEN_METAL);            // 1500C bath
+
+    // Thin steel rods DEEPLY dipped: each rod runs from 2 cells above the bath
+    // surface down to near the bottom, so its submerged length is enveloped on
+    // three sides by 1500C liquid — that envelopment is what actually melts it.
+    // The 2-cell tips poking into cool air survive as glowing incandescent studs.
+    const count = 9;
+    const span = cxR - cxL;
+    const stepX = span / count;
+    const rodTopY = bathTop - 2;
+    const rodBotY = bathBot - 3;
 
     for (let k = 0; k < count; k++) {
-      const x0 = Math.round(gap + k * (blockW + gap));
-      const x1 = x0 + blockW - 1;
+      const rx = Math.round(cxL + stepX * (k + 0.5));
+      fill(grid, rx - 1, rodTopY, rx, rodBotY, M.METAL);   // 2-wide rod
 
-      // Solid steel billet standing on the floor.
-      fill(grid, x0, blockTop, x1, floorTop - 1, M.METAL);
-
-      // Bore a wick well down into the billet's top and flood it with oil.
-      const wx0 = x0 + 10, wx1 = x1 - 10;
-      const wellBot = blockTop + 12;
-      for (let y = blockTop; y <= wellBot; y++)
-        for (let x = wx0; x <= wx1; x++) carveIf(grid, x, y, M.METAL, M.OIL);
-
-      // A raised oil bead + fire cap sitting proud of the billet to ignite it.
-      fill(grid, wx0, blockTop - 4, wx1, blockTop - 1, M.OIL);
-      fill(grid, wx0 + 1, blockTop - 7, wx1 - 1, blockTop - 5, M.FIRE);
-      // a lick of extra flame, jittered so the five don't look stamped
-      if (rng.chance(0.6)) grid.set(wx0 + 1 + rng.int(wx1 - wx0 - 1), blockTop - 8, M.FIRE);
+      // Oil bead + fire cap on the exposed tip for the ignition flash.
+      fill(grid, rx - 1, rodTopY - 3, rx, rodTopY - 1, M.OIL);
+      grid.set(rx - 1, rodTopY - 5, M.FIRE);
+      if (rng.chance(0.6)) grid.set(rx, rodTopY - 6, M.FIRE);
     }
+
+    // A ragged oil ribbon skimming the rod tips so the flame front travels
+    // across the crucible instead of sitting in nine isolated dots.
+    const ribbonY = rodTopY - 2;
+    for (let x = cxL + 4; x <= cxR - 4; x++)
+      if (rng.chance(0.5)) grid.set(x, ribbonY, M.OIL);
   },
 
   // STEAM --------------------------------------------------------------------

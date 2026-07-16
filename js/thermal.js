@@ -77,14 +77,21 @@ export class Thermal {
     for (let i = 0; i < g.n; i++) {
       const d = MATERIALS[mat[i]];
       if (d.glow > 0 || temp[i] > 300) {
-        // hot things radiate; stronger the hotter they are
+        // hot things radiate; stronger the hotter they are. Kept gentle so heat
+        // accumulates in neighbors (boiling/melting) rather than escaping to air.
         const over = temp[i] - amb;
-        temp[i] -= over * 0.0022 * dt;
+        temp[i] -= over * 0.0012 * dt;
       }
       // sources: materials with a baseTemp actively hold their heat (lava/fire/ember)
       if (d.baseTemp !== undefined && d.glow > 0 && d.lifetime === undefined) {
-        // steady heat source (lava, molten metal/glass) — nudge back toward baseTemp
-        temp[i] += (d.baseTemp - temp[i]) * 0.03 * dt;
+        // steady heat source (lava, molten metal/glass) — pin firmly to baseTemp so
+        // it keeps radiating into neighbors instead of cooling itself off. Strong
+        // coupling here is what lets a lava firebox actually boil a boiler of water.
+        temp[i] += (d.baseTemp - temp[i]) * 0.25 * dt;
+      } else if (d.baseTemp !== undefined && d.glow > 0 && d.lifetime !== undefined) {
+        // ephemeral hot sources (fire, ember): hold their heat hard while alive so
+        // they can dump energy downward into fuel/metal before they decay.
+        temp[i] += (d.baseTemp - temp[i]) * 0.35 * dt;
       }
     }
   }

@@ -17,7 +17,7 @@ export class Sim {
     this.rng = rng;
     this.thermal = new Thermal(grid);
     this.tick = 0;
-    this.thermalSubsteps = 2;
+    this.thermalSubsteps = 3;
     // counters exposed to the HUD / tests
     this.lastChanges = 0;
     this.lastReactions = 0;
@@ -225,8 +225,10 @@ export class Sim {
     let c = 0;
     for (const j of this.neighbors(x, y)) {
       const d = MATERIALS[g.mat[j]];
-      // radiate heat into neighbors
-      if (g.temp[j] < g.temp[i]) g.temp[j] += (g.temp[i] - g.temp[j]) * 0.25;
+      // dump heat hard into neighbors on contact — a flame lick is intense locally.
+      // This is what lets a short-lived fire actually ignite fuel / heat metal
+      // before it rises away as a gas.
+      if (g.temp[j] < g.temp[i]) g.temp[j] += (g.temp[i] - g.temp[j]) * 0.45;
       // directly ignite flammables that are hot enough
       if (d.flammable && d.ignite !== undefined && g.temp[j] >= d.ignite && d.burnTo) {
         g.convert(j, d.burnTo(), false);
