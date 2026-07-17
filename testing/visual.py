@@ -33,6 +33,20 @@ FIXTURES = [
 
 GRID = 24  # downsample to 24x24 luminance cells
 
+# JS run before capture to guarantee no DOM overlay occludes the canvas.
+# The app auto-shows a first-run "Welcome to Fluxsand" onboarding card
+# (id 'onboarding') when localStorage 'fluxsand_onboarded' is unset, and a
+# per-scenario instruction card (id 'scenario-instructions') that loadScenario
+# can re-surface. Both sit over the canvas. This sets the onboarded flag and
+# hides both overlays so screenshots capture the scene, not the UI. It never
+# touches simulation state — the sim (js/) is unchanged; this is test-only.
+CLEAR_OVERLAYS = (
+    "try{localStorage.setItem('fluxsand_onboarded','1');}catch(e){}"
+    "var o=document.getElementById('onboarding'); if(o){o.hidden=true;o.style.display='none';}"
+    "var s=document.getElementById('scenario-instructions'); if(s){s.hidden=true;s.style.display='none';}"
+    "return true;"
+)
+
 
 def signature(path):
     im = Image.open(path).convert("RGB")
@@ -68,10 +82,13 @@ def main():
     results = []
     try:
         c.load(srv.url("/index.html"))
+        c.eval(CLEAR_OVERLAYS)  # dismiss first-run onboarding + instruction cards
         for name, ops in FIXTURES:
             c.eval("return window.__FLUX.reset()")
             for op in ops:
                 c.eval(f"return window.__FLUX.{op}")
+            # re-clear in case loadScenario re-surfaced an overlay this fixture
+            c.eval(CLEAR_OVERLAYS)
             shot = os.path.join(SHOTS, f"vis_{name}.png")
             c.screenshot(shot)
             sig = signature(shot)
