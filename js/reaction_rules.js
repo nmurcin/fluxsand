@@ -55,9 +55,6 @@ export const REACTION_RULES = [
   // Snow slumps to water against anything above freezing.
   { a: 'snow', b: 'any_liquid', chance: 0.3, tempMin: 2, a_into: 'water', b_into: 'keep',
     heat: -5, desc: 'snow melts against warm liquid' },
-  // Road-salt chemistry: salt melts ice even below 0C.
-  { a: 'salt', b: 'ice', chance: 0.08, tempMin: -20, tempMax: 5, a_into: 'keep', b_into: 'water',
-    desc: 'salt depresses freezing point, melting ice to brine' },
 
   // ============ THERMITE — burns THROUGH metal at ~2500C ============
   { a: 'thermite', b: 'spark', chance: 1, a_into: 'molten_metal', b_into: 'fire',
@@ -72,7 +69,7 @@ export const REACTION_RULES = [
   { a: 'thermite', b: 'water', chance: 0.9, tempMin: 1000, a_into: 'keep', b_into: 'steam',
     b_temp: 130, desc: 'burning thermite flashes water to steam and keeps going' },
 
-  // ============ FUSES & FUELS — gunpowder, gasoline, napalm, tar, spark ============
+  // ============ FUSES & FUELS — gunpowder, gasoline, napalm, coal, spark ============
   { a: 'gunpowder', b: 'spark', chance: 1, a_into: 'fire', b_into: 'fire',
     a_temp: 900, b_temp: 900, heat: 300, desc: 'spark flashes gunpowder to a double burst' },
   { a: 'gunpowder', b: 'fire', chance: 0.95, a_into: 'fire', b_into: 'fire',
@@ -83,8 +80,6 @@ export const REACTION_RULES = [
     a_temp: 950, heat: 200, desc: 'napalm catches into a sticky self-reigniting flame wall' },
   { a: 'napalm', b: 'ember', chance: 0.7, a_into: 'fire', b_into: 'ember',
     a_temp: 950, heat: 200, desc: 'embers light clingy napalm into a sustained sheet of fire' },
-  { a: 'tar', b: 'fire', chance: 0.3, a_into: 'fire', b_into: 'fire',
-    a_temp: 700, heat: 120, desc: 'tar reluctantly catches and burns thick, black, and hot' },
   // Spark: propagates through metal + mercury (a current), ignites fuels, fizzles in water.
   { a: 'spark', b: 'metal', chance: 0.6, a_into: 'spark', b_into: 'spark',
     desc: 'arc jumps along a metal wire — electricity races down a conductor' },
@@ -109,15 +104,7 @@ export const REACTION_RULES = [
   { a: 'wax', b: 'fire', chance: 0.5, a_into: 'molten_wax', b_into: 'fire', a_temp: 90,
     desc: 'heat weeps wax into running flammable liquid' },
 
-  // ============ CHEMISTRY — acid/base, rust, mercury, mold, concrete ============
-  // Neutralization: acid + base -> salt + water, exothermic.
-  { a: 'acid', b: 'lye', chance: 0.9, a_into: 'salt', b_into: 'water',
-    a_temp: 60, b_temp: 60, heat: 25, desc: 'acid + lye neutralize to salt + warm water' },
-  // Lye dissolving in water is strongly exothermic (heats toward boiling, no flame).
-  { a: 'lye', b: 'water', chance: 0.35, a_into: 'keep', b_into: 'keep', b_temp: 80, heat: 60,
-    desc: 'lye dissolving in water heats it (exothermic, no flame)' },
-  { a: 'lye', b: 'wood', chance: 0.03, a_into: 'keep', b_into: 'empty', desc: 'caustic lye slowly eats wood' },
-  { a: 'lye', b: 'plant', chance: 0.05, a_into: 'keep', b_into: 'empty', desc: 'caustic lye eats plant matter' },
+  // ============ CHEMISTRY — rust, mercury ============
   // Rust: metal slowly oxidizes in water; rust dissolves fast in acid.
   { a: 'metal', b: 'water', chance: 0.004, tempMin: 5, a_into: 'rust', b_into: 'keep',
     desc: 'steel left in water slowly rusts (time-lapse)' },
@@ -126,21 +113,4 @@ export const REACTION_RULES = [
   // Mercury amalgamates and consumes solid metal into more mercury.
   { a: 'mercury', b: 'metal', chance: 0.03, a_into: 'keep', b_into: 'mercury',
     desc: 'mercury amalgamates metal, creeping through machinery' },
-  // Concrete slurry cures to solid concrete (self-set; needs no neighbor -> use 'any').
-  { a: 'concrete_wet', b: 'any', chance: 0.012, a_into: 'concrete', b_into: 'keep', a_temp: 25,
-    desc: 'wet concrete slowly cures to permanent stone-like structure' },
-  { a: 'sand', b: 'water', chance: 0.012, a_into: 'concrete_wet', b_into: 'empty',
-    desc: 'sand mixed into water slowly yields concrete slurry' },
-  // Mold: living blight creeps over organics in a living temp band; dies to fire/frost.
-  // mold DIES to fire/heat (it is wet biomass, not fuel — it sterilizes to ash
-  // rather than burning). These must precede the growth rules so heat wins.
-  { a: 'mold', b: 'fire', chance: 1, a_into: 'ash', b_into: 'keep', desc: 'fire sterilizes mold to ash' },
-  { a: 'mold', b: 'ember', chance: 0.6, a_into: 'ash', b_into: 'keep', desc: 'embers kill mold' },
-  { a: 'mold', b: 'lava', chance: 1, a_into: 'ash', b_into: 'keep', desc: 'lava sterilizes mold' },
-  { a: 'mold', b: 'wood', chance: 0.03, tempMin: 2, tempMax: 45, a_into: 'keep', b_into: 'mold',
-    desc: 'mold colonizes wood' },
-  { a: 'mold', b: 'plant', chance: 0.05, tempMin: 2, tempMax: 45, a_into: 'keep', b_into: 'mold',
-    desc: 'mold overruns plant matter' },
-  { a: 'mold', b: 'ash', chance: 0.02, tempMin: 2, tempMax: 45, a_into: 'keep', b_into: 'mold',
-    desc: 'mold creeps across damp ash' },
 ];

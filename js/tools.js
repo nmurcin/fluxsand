@@ -3,21 +3,40 @@
 // through window.__FLUX so behavior is identical whether a human or a bot drives it.
 
 import { MATERIALS, PALETTE, BY_NAME, matName } from './materials.js';
+import { INFERNO_RAMP } from './render.js';
+
+// Build a CSS linear-gradient string from the shared inferno anchor stops so the
+// legend bar shows the EXACT same smooth colormap the renderer paints. Top of the
+// bar = hottest, so the ramp is emitted reversed (last anchor first).
+function infernoGradientCss() {
+  const n = INFERNO_RAMP.length;
+  const stops = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const [r, g, b] = INFERNO_RAMP[i];
+    const pct = ((n - 1 - i) / (n - 1)) * 100;
+    stops.push(`rgb(${r},${g},${b}) ${pct.toFixed(1)}%`);
+  }
+  return `linear-gradient(to top, ${stops.join(', ')})`;
+}
 
 export function initUI(ctx) {
-  const { canvas, grid, FLUX, getState, setSelected, setBrush, setOverlay, togglePause, step, reset } = ctx;
+  const { canvas, grid, FLUX, getState, setSelected, setBrush, togglePause, step, reset } = ctx;
+  // setOverlay is wrapped below (after the legend elements exist) so that every
+  // overlay change — keyboard F/G, buttons, or programmatic — also toggles and
+  // refreshes the thermal legend. Declared with `let` so it can be rebound.
+  let setOverlay = ctx.setOverlay;
 
   // --- build palette dock ---
-  // Local, UI-only grouping of the 27 palette materials into labeled sections.
+  // Local, UI-only grouping of the palette materials into labeled sections.
   // Order within/across groups preserves PALETTE order for the first 10 entries,
   // so number keys 1-9 then 0 keep mapping to PALETTE[0..9] regardless of layout.
   // Derived here in tools.js only; materials.js is never touched.
   const PALETTE_GROUPS = [
     { label: 'Basics', mats: ['sand', 'water', 'oil', 'lava', 'ice', 'wood', 'metal', 'stone'] },
-    { label: 'Fire', mats: ['gasoline', 'fire', 'gunpowder', 'thermite', 'napalm', 'coal', 'tar', 'spark'] },
+    { label: 'Fire', mats: ['gasoline', 'fire', 'gunpowder', 'thermite', 'napalm', 'coal', 'spark'] },
     { label: 'Cryo', mats: ['liquid_nitrogen', 'dry_ice', 'snow'] },
-    { label: 'Chem', mats: ['mercury', 'lye', 'acid', 'concrete_wet', 'salt'] },
-    { label: 'Life', mats: ['plant', 'mold', 'wax'] },
+    { label: 'Chem', mats: ['mercury', 'acid', 'concrete'] },
+    { label: 'Life', mats: ['plant', 'wax'] },
   ];
 
   // Key-badge label for a material: keys 1-9 then 0 map to the first 10 PALETTE
@@ -37,7 +56,10 @@ export function initUI(ctx) {
     const [r, g, b] = def.color;
     el.style.setProperty('--sw', `rgb(${r},${g},${b})`);
     const badge = keyLabel(name);
-    const label = name.replace(/_/g, ' '); // "liquid_nitrogen" -> "liquid nitrogen" (wraps, not truncates)
+    const label = name.replace(/_/g, ' '); // "liquid_nitrogen" -> "liquid nitrogen"
+    // Compact horizontal swatch: small color chip + short label side-by-side.
+    // Full name lives in the tooltip so a truncated label is still discoverable.
+    el.title = label + (badge ? `  (${badge})` : '');
     el.innerHTML =
       `<span class="chip"></span><span class="label">${label}</span>` +
       (badge ? `<span class="key">${badge}</span>` : '');
@@ -45,21 +67,23 @@ export function initUI(ctx) {
     return el;
   }
 
+  // Build the palette as a single horizontal strip: for each group emit a small
+  // inline divider label (Basics/Fire/Cryo/Chem/Life) followed by that group's
+  // swatches, all flowing left-to-right. The strip lives in the bottom bar and
+  // scrolls/wraps as needed (see css). Derived from PALETTE order; groups only
+  // organize the layout — number-key mapping stays tied to PALETTE indices.
   const dock = document.getElementById('palette');
   if (dock) {
-    PALETTE_GROUPS.forEach(group => {
-      const head = document.createElement('div');
-      head.className = 'palette-group';
-      head.textContent = group.label;
-      dock.appendChild(head);
+    PALETTE_GROUPS.forEach((group, gi) => {
+      const div = document.createElement('span');
+      div.className = 'palette-group' + (gi === 0 ? ' first' : '');
+      div.textContent = group.label;
+      dock.appendChild(div);
 
-      const gridEl = document.createElement('div');
-      gridEl.className = 'palette-grid';
       group.mats.forEach(name => {
         if (BY_NAME[name] === undefined) return; // skip any name not in the table
-        gridEl.appendChild(makeSwatch(name));
+        dock.appendChild(makeSwatch(name));
       });
-      dock.appendChild(gridEl);
     });
   }
 
@@ -70,6 +94,65 @@ export function initUI(ctx) {
   }
   selectMat('sand');
 
+  // --- per-scenario instruction overlay ---
+  // A short, human-readable description shown when a scenario becomes active.
+  // Keyed by scenario name (as returned by FLUX.scenarios()). Scenarios not in
+  // the map show no card. Each entry has a title and a list of steps; the
+  // RubeGoldberg entry walks the chain reaction stage by stage. Kept here in the
+  // UI layer so authoring physics (scenarios.js) stays free of presentation.
+  const SCENARIO_INFO = {
+    RubeGoldberg: {
+      title: 'Rube Goldberg — a chain reaction',
+      steps: [
+        '1. A spark lights the gunpowder fuse.',
+        '2. The flame races along the fuse…',
+        '3. …flashing the gasoline slick it runs through.',
+        '4. The fuse hits a powder charge — the blast ignites the thermite into ~2500°C molten iron.',
+        '5. The iron pours off the ledge, melts the metal gate, and the freed water hits the lava — steam!',
+      ],
+      hint: 'Press play and watch it cascade. Click to dismiss.',
+    },
+  };
+
+  const siEl = document.getElementById('scenario-instructions');
+  const siTitle = document.getElementById('si-title');
+  const siBody = document.getElementById('si-body');
+  const siClose = document.getElementById('si-close');
+  let siFadeTimer = null, siHideTimer = null, siShownFor = null;
+
+  function hideInstructions() {
+    if (siFadeTimer) { clearTimeout(siFadeTimer); siFadeTimer = null; }
+    if (siHideTimer) { clearTimeout(siHideTimer); siHideTimer = null; }
+    if (siEl) { siEl.hidden = true; siEl.classList.remove('fading'); }
+  }
+
+  // Show the instruction card for `name` (if it has an entry). Auto-fades after a
+  // few seconds so it never blocks play; re-showing resets the timers.
+  function showInstructions(name) {
+    if (!siEl) return;
+    siShownFor = name;                       // remember the scenario we last reacted to
+    const info = SCENARIO_INFO[name];
+    if (!info) { hideInstructions(); return; }
+    if (siFadeTimer) { clearTimeout(siFadeTimer); siFadeTimer = null; }
+    if (siHideTimer) { clearTimeout(siHideTimer); siHideTimer = null; }
+    siTitle.textContent = info.title;
+    const steps = (info.steps || []).map(s => `<span class="si-step">${s}</span>`).join('');
+    const hint = info.hint ? `<span class="si-hint">${info.hint}</span>` : '';
+    siBody.innerHTML = steps + hint;
+    siEl.hidden = false;
+    // force reflow so removing .fading re-triggers the transition
+    void siEl.offsetWidth;
+    siEl.classList.remove('fading');
+    // auto-fade: begin fading after a dwell, fully hide once the transition ends
+    siFadeTimer = setTimeout(() => {
+      siEl.classList.add('fading');
+      siHideTimer = setTimeout(() => { siEl.hidden = true; siEl.classList.remove('fading'); }, 700);
+    }, 9000);
+  }
+
+  if (siClose) siClose.addEventListener('click', (e) => { e.stopPropagation(); hideInstructions(); });
+  if (siEl) siEl.addEventListener('click', () => hideInstructions());
+
   // --- gallery strip ---
   const gallery = document.getElementById('gallery');
   if (gallery) {
@@ -77,9 +160,18 @@ export function initUI(ctx) {
       const b = document.createElement('button');
       b.className = 'scenario';
       b.textContent = name;
-      b.addEventListener('click', () => FLUX.loadScenario(name));
+      b.addEventListener('click', () => { FLUX.loadScenario(name); showInstructions(name); });
       gallery.appendChild(b);
     });
+  }
+
+  // Show the card for whatever scenario is active at boot (e.g. a shared link or
+  // the default), and keep it in sync if the active scenario changes by any path
+  // (gallery click, programmatic loadScenario, replay). The HUD poll below also
+  // re-checks lastScenario each tick so this covers non-UI scenario switches.
+  {
+    const s0 = window.__STATE__;
+    if (s0 && s0.lastScenario) showInstructions(s0.lastScenario);
   }
 
   // --- mouse painting ---
@@ -116,6 +208,38 @@ export function initUI(ctx) {
   const slider = document.getElementById('brush');
   if (slider) slider.addEventListener('input', () => { const b = +slider.value; setBrush(b); FLUX.setBrush(b); });
 
+  // --- thermal legend ---
+  // The legend is a DOM color bar bottom-left of the stage. It's shown only in
+  // thermal mode and its labels track the scene's live dynamic range (published
+  // as __STATE__.thermalRange by the renderer). The bar gradient is set once
+  // from the shared inferno colormap.
+  const legendEl = document.getElementById('thermal-legend');
+  const barEl = document.getElementById('tl-bar');
+  const minEl = document.getElementById('tl-min');
+  const midEl = document.getElementById('tl-mid');
+  const maxEl = document.getElementById('tl-max');
+  if (barEl) barEl.style.background = infernoGradientCss();
+
+  function refreshThermalLegend() {
+    if (!legendEl) return;
+    const s = window.__STATE__;
+    const isThermal = s ? s.overlay === 'thermal' : (getState().overlay === 'thermal');
+    legendEl.hidden = !isThermal;
+    if (!isThermal) return;
+    const tr = s && s.thermalRange;
+    if (tr && isFinite(tr.min) && isFinite(tr.max)) {
+      const lo = Math.round(tr.min), hi = Math.round(tr.max);
+      const mid = Math.round((tr.min + tr.max) / 2);
+      if (maxEl) maxEl.textContent = `${hi}°`;
+      if (midEl) midEl.textContent = `${mid}°`;
+      if (minEl) minEl.textContent = `${lo}°`;
+    }
+  }
+
+  // Wrap the incoming setOverlay so every overlay change also toggles the legend.
+  const _setOverlay = setOverlay;
+  setOverlay = (mode) => { _setOverlay(mode); refreshThermalLegend(); };
+
   // --- overlay buttons ---
   document.querySelectorAll('[data-overlay]').forEach(btn => {
     btn.addEventListener('click', () => setOverlay(btn.dataset.overlay));
@@ -143,6 +267,14 @@ export function initUI(ctx) {
         `<div class="row"><span>liquid</span><b>${ph.liquid || 0}</b></div>` +
         `<div class="row"><span>gas</span><b>${ph.gas || 0}</b></div>` +
         `<div class="row"><span>mat</span><b>${s.selectedMaterial}</b></div>`;
+      // Keep the thermal legend labels tracking the live dynamic range.
+      refreshThermalLegend();
+      // Detect scenario changes made outside the gallery buttons (programmatic
+      // loadScenario, shared-link load, replay) and surface the instruction card.
+      if (s.lastScenario !== siShownFor) showInstructions(s.lastScenario);
     }, 120);
   }
+
+  // Initial legend state (hidden unless we booted straight into thermal).
+  refreshThermalLegend();
 }

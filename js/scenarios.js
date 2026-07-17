@@ -439,13 +439,13 @@ export const SCENARIOS = {
     fill(grid, vx1 + wall + 10, floorTop - 3, vx1 + wall + 40, floorTop - 1, M.GASOLINE);
   },
 
-  // NEUTRALIZATION COLUMN ----------------------------------------------------
-  // One tall centered glass column, sealed floor to lid, stacked as a chemistry
-  // set: green ACID in the upper half rests on purple LYE in the lower half. Where
-  // the two meet they neutralize to salt + water (exothermic) — a churning band
-  // develops mid-column. A dense MERCURY puddle floors the column so the lighter
-  // liquids stratify above it, and a small stone shelf near the acid slowly
-  // dissolves. Acid/base neutralization + density stratification, all in-frame.
+  // STRATIFICATION COLUMN ----------------------------------------------------
+  // One tall centered glass column, sealed floor to lid, stacked as a density
+  // set: a slick of light OIL floats on green ACID, which in turn rests on a
+  // dense MERCURY floor — three immiscible liquids settle into clean bands by
+  // density (oil 9 < acid 10 << mercury 136). A pair of stone shelves jut into
+  // the acid layer and slowly dissolve, and a metal block half-sunk in the
+  // mercury amalgamates away. Density stratification + corrosion, all in-frame.
   ChemLab(grid, rng, d) {
     const W = VW, H = VH;
     grid.clear();
@@ -460,20 +460,20 @@ export const SCENARIOS = {
     fill(grid, gx0, gTop + wt, gx1, gBot, M.EMPTY);                    // hollow interior
     fill(grid, gx0, gBot, gx1, gBot, M.GLASS);                         // seal the floor
 
-    // Fill: green acid over purple lye, meeting at mid-column to neutralize.
+    // Fill: light oil over green acid — they settle into two clean bands.
     const mid = (gTop + gBot) >> 1;
-    fill(grid, gx0, gTop + wt + 6, gx1, mid - 1, M.ACID);             // green acid, upper
-    fill(grid, gx0, mid + 1, gx1, gBot - 2, M.LYE);                   // purple lye, lower
+    fill(grid, gx0, gTop + wt + 6, gx1, mid - 1, M.OIL);             // light oil, upper
+    fill(grid, gx0, mid + 1, gx1, gBot - 2, M.ACID);                // green acid, lower
 
     // Dense mercury puddle on the column floor — everything stratifies above it.
     fill(grid, gx0 + 2, gBot - 6, gx1 - 2, gBot - 2, M.MERCURY);
 
-    // A sprinkle of salt across the neutralization boundary (the reaction product).
-    for (let x = gx0 + 2; x <= gx1 - 2; x++)
-      if (rng.chance(0.25)) put(grid, x, mid, M.SALT);
+    // A metal block half-sunk in the mercury slowly amalgamates away.
+    fill(grid, cx - 4, gBot - 8, cx + 4, gBot - 5, M.METAL);
 
-    // A small stone shelf at the top-left the acid runs across and slowly eats.
-    row(grid, gx0, gx0 + 8, gTop + wt + 10, M.STONE);
+    // A pair of small stone shelves the acid runs across and slowly eats.
+    row(grid, gx0, gx0 + 8, mid + 4, M.STONE);
+    row(grid, gx1 - 8, gx1, mid + 8, M.STONE);
   },
 
   // THERMITE CUT -------------------------------------------------------------
@@ -499,10 +499,22 @@ export const SCENARIOS = {
     }
     fill(grid, beamX0, beamY, beamX1, beamY + 3, M.METAL);           // 4-thick steel beam
 
-    // Thermite pile heaped ON the beam, with a spark to set it off.
-    fill(grid, cx - 16, beamY - 12, cx + 16, beamY - 1, M.THERMITE);
-    put(grid, cx, beamY - 13, M.SPARK);
-    if (rng.chance(0.5)) put(grid, cx - 1, beamY - 13, M.SPARK);
+    // Thermite pile heaped ON the beam.
+    const pileTop = beamY - 12, pileBot = beamY - 1;
+    fill(grid, cx - 16, pileTop, cx + 16, pileBot, M.THERMITE);
+
+    // Igniter: SPARK grains painted DIRECTLY INTO the pile's interior, AFTER the
+    // thermite fill so they overwrite a few thermite cells. Embedding guarantees the
+    // spark is fully surrounded by thermite at any resolution — and, crucially, that
+    // contact survives the powder settling one row on tick 1 (the old bug: a spark
+    // perched one row ABOVE the pile lost contact when the heap slumped down, opening
+    // a 2-cell gap the Moore neighborhood can't bridge, so it decayed without lighting).
+    // Buried in the pile, spark+thermite fires on tick 1 (chance 1) before the ~6-tick
+    // spark lifetime elapses. A short vertical seam of spark lights a wide cut fast.
+    const igY = Math.round((pileTop + pileBot) / 2);   // mid-height of the heap
+    put(grid, cx, igY, M.SPARK);
+    put(grid, cx, igY + 1, M.SPARK);
+    if (rng.chance(0.5)) put(grid, cx - 1, igY, M.SPARK);
 
     // Catch pit below the cut, with a shallow water quench for a steam puff.
     const px0 = cx - 30, px1 = cx + 30, pTop = floorTop - 22;
@@ -511,47 +523,105 @@ export const SCENARIOS = {
     fill(grid, px0, floorTop - 8, px1, floorTop - 2, M.WATER);       // quench water
   },
 
-  // FOUR CORNERS -------------------------------------------------------------
-  // No fragile chain — a self-heating LAVA spire stands dead center in a stone
-  // chimney and radiates heat, while four independent reactions run in the four
-  // corners, each a different material's signature trick: NW a gunpowder shelf
-  // the spire's heat can reach; NE an LN2 reservoir whose floor touches the hot
-  // chimney and boils to fog; SW a tar pit that slowly catches; SE a mercury pool
-  // with a metal block half-sunk that amalgamates. One legible source, four
-  // parallel payoffs, all visible at once.
+  // RUBE GOLDBERG ------------------------------------------------------------
+  // A REAL chain reaction: one spark cascades through five stages, each built on
+  // a HIGH-PROBABILITY reaction (each link verified by probe) so it fires reliably
+  // from a standing start and finishes within ~200 ticks:
+  //
+  //   1. SPARK on the fuse head lights a GUNPOWDER fuse (spark+gunpowder chance 1).
+  //   2. the fuse DEFLAGRATES left-to-right along the top shelf (a running flame).
+  //   3. the fuse runs THROUGH a GASOLINE slick -> the whole slick flashes
+  //      (fuse-in-fuel is the reliable ignite, not a flame drifting onto a pool).
+  //   4. the fuse ends in a GUNPOWDER charge packed against a THERMITE pile at the
+  //      shelf's open right edge; the blast lights the thermite -> ~2500C MOLTEN
+  //      IRON, which pours off the ledge.
+  //   5. the falling iron lands on a METAL GATE damming a WATER reservoir over an
+  //      air gap and a LAVA pool; the 2500C iron melts the gate, the water drops
+  //      through onto the lava -> a big STEAM burst (lava+water chance 1). Water
+  //      and lava never touch until the gate breaks, so the tank is dry until the
+  //      chain reaches it — the steam is the finale, not a pre-existing leak.
+  //
+  // The chain reads left-to-right along the elevated shelf, then drops into the
+  // tank on the right. Centered in the frame.
   RubeGoldberg(grid, rng, d) {
     const W = VW, H = VH;
     grid.clear();
 
-    const floorTop = H - 12;
+    const floorTop = H - 10;
     fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
-    const cx = W >> 1;
 
-    // Central lava spire in a stone chimney — the self-heating source.
-    const chx0 = cx - 8, chx1 = cx + 8, chTop = 40, chBot = floorTop - 1;
-    fill(grid, chx0 - 4, chTop - 2, chx1 + 4, chBot, M.STONE);        // chimney host
-    fill(grid, chx0, chTop, chx1, chBot - 1, M.LAVA);                // molten core
+    // The chain rides ONE elevated shelf near the top of the frame. `fuseY` is the
+    // fuse row; the shelf sits just below it. The fuse is drawn LAST as an unbroken
+    // 2-row trail so the deflagration never hits a gap. The shelf's RIGHT end is
+    // open (a ledge) over the tank so the molten iron can pour off it.
+    // A small origin shift centers the whole machine horizontally in the frame
+    // (content is ~224 wide in a 320 space, so nudge it right by ~half the slack).
+    const ox = 32;
+    const shelfX0 = 20 + ox;          // left end of the shelf
+    const ledgeX = 176 + ox;          // shelf's open right edge (iron pours off here)
+    const railY = 58;                 // shelf top
+    const fuseY = railY - 3;          // fuse line (2 rows: fuseY, fuseY+1)
 
-    // NW: a gunpowder shelf the radiating heat can reach.
-    fill(grid, 40, 60, 88, 64, M.STONE);                             // shelf
-    fill(grid, 46, 52, 82, 59, M.GUNPOWDER);                         // charge
+    // The elevated stone shelf (kept BELOW the fuse rows).
+    fill(grid, shelfX0, railY, ledgeX, railY + 3, M.STONE);
 
-    // NE: an LN2 reservoir whose floor touches the hot chimney -> boils to fog.
-    const r0 = 232, r1 = 280, rTop = 48, rBot = 78;
-    fill(grid, r0 - 3, rTop - 3, r1 + 3, rBot, M.STONE);             // reservoir walls
-    fill(grid, r0, rTop, r1, rBot - 1, M.EMPTY);                     // hollow
-    fill(grid, r0, rTop + 6, r1, rBot - 1, M.LIQUID_NITROGEN);       // cryo charge
+    // Fuse extents (from the lead tip to the charge).
+    const fuseStart = 44 + ox;
+    const fuseEnd = 150 + ox;
 
-    // SW: a tar pit that slowly catches from the ambient heat.
-    fill(grid, 36, floorTop - 8, 96, floorTop - 1, M.TAR);
+    // ---- STAGE 1: the trigger — spark on the fuse head ----------------------
+    // A short metal detonator lead runs into the fuse head for looks. The spark
+    // grains themselves are placed at the very end of this function, directly on
+    // the first powder cells, so the fuse lights on tick one (spark+gunpowder
+    // chance 1) — no long, flaky arc-down-a-wire delay.
+    fill(grid, shelfX0 + 2, fuseY, fuseStart, fuseY + 1, M.METAL); // detonator lead (cosmetic)
 
-    // SE: a mercury pool with a metal block half-sunk that amalgamates.
-    fill(grid, 224, floorTop - 8, 288, floorTop - 1, M.MERCURY);
-    fill(grid, 248, floorTop - 14, 264, floorTop - 9, M.METAL);
+    // ---- STAGE 3 (structure first): the gasoline slick trough ---------------
+    // A shallow gasoline slick in a stone trough DIRECTLY BELOW the fuse (the fuse
+    // bottom row is adjacent to the slick top). The running flame flashes the
+    // whole slick (verified far more reliable than a flame drifting onto a pool).
+    const gx0 = 60 + ox, gx1 = 116 + ox;
+    col(grid, gx0 - 1, railY - 2, railY, M.STONE);              // left trough wall
+    col(grid, gx1 + 1, railY - 2, railY, M.STONE);              // right trough wall
+    row(grid, gx0, gx1, railY - 1, M.GASOLINE);                 // slick, one row under the fuse
 
-    // Frame-one heat wisps rising off the spire so it reads live.
-    for (let n = 0; n < 5; n++)
-      put(grid, cx - 4 + rng.int(9), chTop - 2 - rng.int(5), M.FIRE);
+    // ---- STAGE 4 (structure first): powder charge + thermite pile -----------
+    // The fuse ends in a packed gunpowder charge shoved against a thermite pile
+    // that sits at the shelf's open right edge. The charge's blast lights the
+    // thermite (verified) -> ~2500C molten iron. The pile is on the SHELF, high
+    // above the lava, so nothing preheats it — only the fuse's charge lights it.
+    const cx0 = 126 + ox, cx1 = 146 + ox;                       // charge x-span
+    const tx0 = 148 + ox, tx1 = ledgeX;                         // thermite pile out to the ledge
+    fill(grid, cx0, railY - 6, cx1, railY - 1, M.GUNPOWDER);    // packed charge
+    fill(grid, tx0, railY - 8, tx1, railY - 1, M.THERMITE);     // thermite pile to the open edge
+
+    // ---- STAGE 5: the tank — water reservoir / gate / air gap / lava --------
+    // Below the ledge sits a sealed stone tank. A thin METAL GATE holds a WATER
+    // reservoir up; below the gate is an AIR GAP, then a LAVA pool on the tank
+    // floor. Water and lava are separated by the gate AND the gap, so the tank is
+    // bone dry until the molten iron (pouring off the ledge) melts the gate — then
+    // the water column drops through the gap onto the lava for the steam burst.
+    const bx0 = ledgeX - 8, bx1 = ledgeX + 60;                  // tank spans under/right of the ledge
+    const boxTop = railY + 6, boxBot = floorTop - 1;
+    fill(grid, bx0 - 3, boxTop - 2, bx1 + 3, boxBot + 1, M.STONE); // solid tank host
+    fill(grid, bx0, boxTop, bx1, boxBot, M.EMPTY);                 // hollow the tank
+    const gateY = boxTop + 14;                                     // gate a bit below the rim
+    fill(grid, bx0, gateY, bx1, gateY + 1, M.METAL);              // the meltable gate (2 rows)
+    fill(grid, bx0, boxTop + 2, bx1, gateY - 1, M.WATER);        // water reservoir dammed on the gate
+    const lavaTop = boxBot - 12;
+    fill(grid, bx0, lavaTop, bx1, boxBot, M.LAVA);               // lava pool on the tank floor (air gap above)
+
+    // ---- STAGE 2 (drawn LAST): the continuous gunpowder fuse ----------------
+    // One unbroken 2-row powder trail from the lead tip into the charge. Drawn
+    // after every structure so NOTHING overwrites it — the deflagration front has
+    // a clean, gap-free path the whole way across.
+    fill(grid, fuseStart, fuseY, fuseEnd, fuseY + 1, M.GUNPOWDER);
+
+    // The igniter: spark grains placed LAST, directly on the fuse head, so the
+    // fuse lights on tick one (spark+gunpowder chance 1).
+    put(grid, fuseStart, fuseY, M.SPARK);
+    put(grid, fuseStart, fuseY + 1, M.SPARK);
+    put(grid, fuseStart + 1, fuseY, M.SPARK);
   },
 
   // EMPTY --------------------------------------------------------------------

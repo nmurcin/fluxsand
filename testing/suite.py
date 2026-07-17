@@ -639,38 +639,35 @@ def test_gasoline_ignites_from_spark(c):
             f"peak fire+smoke={combust_peak} (gasoline ignited from spark), gasoline {gas0}->{gas1}")
 
 
-def test_acid_lye_neutralization(c):
-    name = "15 acid + lye neutralize: acid consumed, salt and/or water produced"
-    # Acid painted directly above lye (the sim's alkali/base) so every column has an
-    # acid-lye contact. The declarative neutralization rule (acid+lye -> salt+water)
-    # consumes both reactants and produces salt (from acid) + water (from lye).
+def test_acid_corrodes_metal(c):
+    name = "15 acid corrodes metal: metal consumed where acid pools against it"
+    # Acid painted directly above a metal slab so every column has an acid-metal
+    # contact. The declarative corrosion rule (acid + metal -> b_into: empty)
+    # eats the metal away over time. A stone floor pins the metal in place so the
+    # loss is corrosion, not the metal falling away.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(11)")
-    # Acid band directly on top of a lye band (adjacent rows, no gap) so every column has
-    # an acid/lye contact; stacked bands scaled from the 320x200 reference.
-    H = GRID["h"]
+    W, H = GRID["w"], GRID["h"]
+    floor_top = H - 5
+    # Full-width stone floor to contain the column.
+    c.eval(f"return window.__FLUX.paintRect(0,{floor_top},{W-1},{H-1},'stone')")
+    # Acid band directly on top of a metal band (adjacent rows, no gap) so every
+    # column has an acid/metal contact; stacked bands scaled from the 320x200 ref.
     band = max(10, H // 10)
-    top = H * 100 // 200            # ~ the original acid top y=100, scaled
-    _paint_vstack(c, 120, 160, [("acid", band), ("lye", band)], top)
+    top = floor_top - 2 * band       # acid+metal stack ends just above the floor
+    _paint_vstack(c, 120, 160, [("acid", band), ("metal", band)], top)
     c.eval("return window.__FLUX.step(0)")  # baseline without advancing
     acid0 = _mass(c, "acid")
-    salt0 = _mass(c, "salt")
-    water0 = _mass(c, "water")
-    if acid0 <= 0:
-        return (name, False, f"fixture invalid: no acid painted (acid0={acid0})")
-    c.eval("return window.__FLUX.step(80)")
+    metal0 = _mass(c, "metal")
+    if acid0 <= 0 or metal0 <= 0:
+        return (name, False, f"fixture invalid: acid0={acid0}, metal0={metal0}")
+    c.eval("return window.__FLUX.step(120)")
     m = _masses(c)
-    acid1 = m.get("acid", 0)
-    salt1 = m.get("salt", 0)
-    water1 = m.get("water", 0)
-    if not (acid1 < acid0):
-        return (name, False, f"acid not consumed: {acid0}->{acid1}")
-    if not (salt1 > salt0 or water1 > water0):
-        return (name, False,
-                f"no neutralization products: salt {salt0}->{salt1}, water {water0}->{water1}")
+    metal1 = m.get("metal", 0)
+    if not (metal1 < metal0):
+        return (name, False, f"metal not corroded: {metal0}->{metal1}")
     return (name, True,
-            f"acid {acid0}->{acid1} (consumed), salt {salt0}->{salt1}, water {water0}->{water1} "
-            f"(neutralization products appeared)")
+            f"metal {metal0}->{metal1} (corroded by acid contact), acid0={acid0}")
 
 
 def test_mercury_sinks_below_water(c):
@@ -787,7 +784,7 @@ TESTS = [
     test_cryo_flash_freeze,
     test_thermite_burns_through_metal,
     test_gasoline_ignites_from_spark,
-    test_acid_lye_neutralization,
+    test_acid_corrodes_metal,
     test_mercury_sinks_below_water,
     test_co2_smothers_fire,
     test_determinism_new_reactions,

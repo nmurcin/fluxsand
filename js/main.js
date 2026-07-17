@@ -95,6 +95,11 @@ function publishState() {
     changes: sim.lastChanges,
     reactions: sim.lastReactions,
     blasts: sim.lastBlasts,
+    // Live thermal-overlay range (deg C) so the on-screen legend can label the
+    // color bar. Only meaningful in thermal mode; harmless otherwise.
+    thermalRange: renderer.getThermalRange
+      ? { ...renderer.getThermalRange() }
+      : null,
   };
 }
 
@@ -140,8 +145,8 @@ const FLUX = {
   palette: PALETTE.slice(),
   M,
 
-  reseed(n) { rng.reseed(n | 0); publishState(); return rng.seed; },
-  reset() { grid.clear(); sim.tick = 0; lastScenario = ''; publishState(); },
+  reseed(n) { rafFrozen = true; rng.reseed(n | 0); publishState(); return rng.seed; },
+  reset() { rafFrozen = true; grid.clear(); sim.tick = 0; lastScenario = ''; publishState(); },
   setMaterial(id) {
     if (typeof id === 'number') selectedMaterial = matName(id);
     else if (BY_NAME[id] !== undefined) selectedMaterial = id;

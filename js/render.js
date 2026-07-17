@@ -44,24 +44,47 @@ function incandescent(t) {
   return FIRE_STOPS[stop];
 }
 
-// --- Posterized inferno palette for the thermal overlay -----------------------
-// 6 fixed EDG32-family stops mapped across -20..1600C, no blending, so the
-// thermal cam reads as banded retro false-color rather than a smooth gradient.
-const INFERNO_STOPS = [
-  [24, 20, 37],    // 181425  near-black (coldest)
-  [104, 56, 108],  // 68386c  purple
-  [162, 38, 51],   // a22633  dark red
-  [247, 118, 34],  // f77622  orange
-  [254, 231, 97],  // fee761  bright yellow
-  [255, 255, 255], // ffffff  white (hottest)
+// --- Smooth inferno colormap for the thermal overlay --------------------------
+// The thermal cam intentionally DROPS the 8-bit posterization for this one view.
+// These anchor stops are the classic matplotlib "inferno" perceptual colormap
+// sampled at 9 points from cold (near-black purple) to hot (pale yellow-white).
+// They are interpolated LINEARLY per-channel (see infernoSmooth) so the result
+// is a continuous gradient, not discrete bands. Normalized position u in [0,1].
+const INFERNO_RAMP = [
+  [0, 0, 4],       // 0.000  black
+  [31, 12, 72],    // 0.125  deep indigo
+  [85, 15, 109],   // 0.250  purple
+  [136, 34, 106],  // 0.375  magenta
+  [186, 54, 85],   // 0.500  red-magenta
+  [227, 89, 51],   // 0.625  red-orange
+  [249, 140, 10],  // 0.750  orange
+  [249, 201, 50],  // 0.875  amber
+  [252, 255, 164], // 1.000  pale yellow-white
 ];
 
-function inferno(t) {
-  // map -20..1600C into 6 discrete buckets
-  let stop = Math.floor((t + 20) / 270); // 1620 span / 6 ~= 270 per bucket
-  if (stop < 0) stop = 0; else if (stop > 5) stop = 5;
-  return INFERNO_STOPS[stop];
+// Map a normalized value u in [0,1] to a smoothly interpolated inferno RGB.
+// Writes into out=[r,g,b] to avoid per-cell allocation in the draw hot loop.
+function infernoSmooth(u, out) {
+  if (u <= 0) { const c = INFERNO_RAMP[0]; out[0] = c[0]; out[1] = c[1]; out[2] = c[2]; return out; }
+  if (u >= 1) { const c = INFERNO_RAMP[INFERNO_RAMP.length - 1]; out[0] = c[0]; out[1] = c[1]; out[2] = c[2]; return out; }
+  const segs = INFERNO_RAMP.length - 1; // 8 segments between 9 anchors
+  const scaled = u * segs;
+  let i = scaled | 0;
+  if (i >= segs) i = segs - 1;
+  const f = scaled - i;
+  const a = INFERNO_RAMP[i], b = INFERNO_RAMP[i + 1];
+  out[0] = (a[0] + (b[0] - a[0]) * f) | 0;
+  out[1] = (a[1] + (b[1] - a[1]) * f) | 0;
+  out[2] = (a[2] + (b[2] - a[2]) * f) | 0;
+  return out;
 }
+
+// Export the smooth colormap + anchor stops so the on-screen legend can render
+// the exact same gradient (see tools.js buildThermalLegend).
+export { infernoSmooth, INFERNO_RAMP };
+
+// Thermal overlay background for empty cells (dark, so material heat pops).
+const THERMAL_BG = [10, 8, 18];
 
 // Chunky glow stamp colors (single fixed palette colors, no accumulation/blur).
 const GLOW_HOT = [254, 174, 52];  // feae34  orange — fire / hot / molten
@@ -94,7 +117,74 @@ export class Renderer {
     this.mode = 'normal';
     // ascii glyph ramp by "intensity"
     this.asciiRamp = ' .:-=+*#%@';
+
+    // Live thermal range (deg C) computed each thermal frame from the actual
+    // scene. Published so the on-screen legend can label min/mid/max. Seeded
+    // with the ambient so a cold/empty scene still shows a sane bar.
+    this.thermalRange = { min: grid.ambient, max: grid.ambient };
+    // Scratch histogram for the robust (percentile) range, reused each frame.
+    // Buckets span TR_LO..TR_HI degC; anything outside is clamped into the ends.
+    this._trLo = -220; this._trHi = 3000; this._trBins = 256;
+    this._trHist = new Int32Array(this._trBins);
+    this._rgbScratch = [0, 0, 0];
   }
+
+  // Robust dynamic range over non-empty cells: the 2nd..98th percentile of the
+  // temperature distribution, so a single lava/plasma cell can't flatten the
+  // gradient and a single cold speck can't drag the floor down. Falls back to
+  // exact min/max when there are too few cells for percentiles to be meaningful.
+  // Result is stashed in this.thermalRange and returned.
+  _computeThermalRange() {
+    const g = this.g, mat = g.mat, temp = g.temp, n = g.n;
+    const lo = this._trLo, hi = this._trHi, bins = this._trBins;
+    const hist = this._trHist;
+    hist.fill(0);
+    const span = hi - lo;
+    let count = 0;
+    let tmin = Infinity, tmax = -Infinity;
+    for (let i = 0; i < n; i++) {
+      if (mat[i] === M.EMPTY) continue;
+      const t = temp[i];
+      if (t < tmin) tmin = t;
+      if (t > tmax) tmax = t;
+      let bi = ((t - lo) / span * bins) | 0;
+      if (bi < 0) bi = 0; else if (bi >= bins) bi = bins - 1;
+      hist[bi]++;
+      count++;
+    }
+    if (count === 0) {
+      const a = g.ambient;
+      this.thermalRange.min = a; this.thermalRange.max = a;
+      return this.thermalRange;
+    }
+    // Percentile edges via cumulative histogram. For small scenes (few cells)
+    // the 2/98 percentile collapses toward the extremes, so just use exact.
+    let pmin, pmax;
+    if (count < 50) {
+      pmin = tmin; pmax = tmax;
+    } else {
+      const loTarget = count * 0.02, hiTarget = count * 0.98;
+      let cum = 0, biLo = 0, biHi = bins - 1, gotLo = false, gotHi = false;
+      for (let b = 0; b < bins; b++) {
+        cum += hist[b];
+        if (!gotLo && cum >= loTarget) { biLo = b; gotLo = true; }
+        if (!gotHi && cum >= hiTarget) { biHi = b; gotHi = true; break; }
+      }
+      pmin = lo + (biLo / bins) * span;
+      pmax = lo + ((biHi + 1) / bins) * span;
+      // Never report a range wider than the true extremes.
+      if (pmin < tmin) pmin = tmin;
+      if (pmax > tmax) pmax = tmax;
+    }
+    // Guarantee a non-degenerate span so normalization never divides by ~0.
+    if (pmax - pmin < 1) { const mid = (pmax + pmin) / 2; pmin = mid - 0.5; pmax = mid + 0.5; }
+    this.thermalRange.min = pmin;
+    this.thermalRange.max = pmax;
+    return this.thermalRange;
+  }
+
+  // The current thermal range (deg C) for external readers (the legend).
+  getThermalRange() { return this.thermalRange; }
 
   setMode(m) {
     this.mode = m;
@@ -135,6 +225,18 @@ export class Renderer {
     const dw = this.dw, dh = this.dh;
     const dispMat = this.dispMat, dispGlow = this.dispGlow;
 
+    // Thermal mode: recompute the scene's actual (robust) temperature range this
+    // frame, then map every cell through the smooth inferno colormap normalized
+    // to that dynamic range. This is what makes a cool ice scene and a hot
+    // volcano both use the full color span instead of looking washed out.
+    let trMin = 0, trInvSpan = 0;
+    const rgb = this._rgbScratch;
+    if (thermal) {
+      const tr = this._computeThermalRange();
+      trMin = tr.min;
+      trInvSpan = 1 / (tr.max - tr.min);
+    }
+
     for (let dy = 0; dy < dh; dy++) {
       for (let dx = 0; dx < dw; dx++) {
         const di = dy * dw + dx;
@@ -145,8 +247,14 @@ export class Renderer {
         let r, gg, b;
 
         if (thermal) {
-          if (id === M.EMPTY) { r = 24; gg = 20; b = 37; } // 181425 cold bg
-          else { const c = inferno(t); r = c[0]; gg = c[1]; b = c[2]; }
+          if (id === M.EMPTY) {
+            r = THERMAL_BG[0]; gg = THERMAL_BG[1]; b = THERMAL_BG[2];
+          } else {
+            let u = (t - trMin) * trInvSpan;
+            if (u < 0) u = 0; else if (u > 1) u = 1;
+            infernoSmooth(u, rgb);
+            r = rgb[0]; gg = rgb[1]; b = rgb[2];
+          }
           dispGlow[di] = 0;
         } else {
           const base = d.color;

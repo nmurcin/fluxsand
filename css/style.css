@@ -23,112 +23,121 @@ html, body {
   overflow: hidden;
 }
 
+/* App is now a vertical stack: a compact top bar, the sim stage (fills the
+   remaining height), and a horizontal palette strip pinned to the bottom. */
 #app {
   display: grid;
-  grid-template-columns: 264px 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100vh;
 }
 
-/* ---- left dock ---- */
-#left {
+/* ---- top bar (brand + controls + gallery) ---- */
+#topbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px;
+  padding: 8px 14px;
   background: linear-gradient(180deg, var(--panel) 0%, #0e1119 100%);
-  border-right: 1px solid var(--line);
-  padding: 16px 14px;
-  overflow-y: auto;
-  display: flex; flex-direction: column; gap: 6px;
+  border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.brand { display: flex; align-items: center; gap: 9px; margin-right: 6px; }
 .brand .logo {
-  font-size: 26px; line-height: 1;
+  font-size: 22px; line-height: 1;
   background: linear-gradient(135deg, var(--accent), #ffd27a);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 0 10px rgba(255,138,61,.4));
 }
-.brand h1 { margin: 0; font-size: 20px; letter-spacing: .5px; font-weight: 700; }
-.brand .tag { margin: 0; font-size: 11px; color: var(--muted); text-transform: lowercase; letter-spacing: .3px; }
+.brand h1 { margin: 0; font-size: 16px; letter-spacing: .5px; font-weight: 700; }
+.brand .tag { margin: 0; font-size: 10px; color: var(--muted); text-transform: lowercase; letter-spacing: .3px; }
 
-.section-title {
-  margin-top: 12px; margin-bottom: 4px;
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted);
+.topbar-group { display: flex; align-items: center; gap: 6px; }
+.grp-label {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted);
+  margin-right: 2px;
 }
-
-/* palette — grouped, compact swatches so all 27 materials stay legible.
-   Renders at natural height; the whole #left dock scrolls (overflow-y:auto)
-   when the viewport is short, so this section never gets flex-squeezed. */
-.palette {
-  display: flex; flex-direction: column; gap: 4px;
-  flex: 0 0 auto;
-}
-.palette-group {
-  margin-top: 6px; margin-bottom: 2px;
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--muted);
-}
-.palette-group:first-child { margin-top: 0; }
-.palette-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
-.swatch {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
-  border-radius: 8px; padding: 6px 4px; cursor: pointer;
-  font-size: 10px; position: relative; transition: border-color .12s, transform .05s;
-  overflow: hidden;
-}
-.swatch:hover { border-color: #3a4055; }
-.swatch:active { transform: translateY(1px); }
-.swatch .chip {
-  width: 16px; height: 16px; border-radius: 4px; background: var(--sw);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--sw) 60%, transparent); flex: 0 0 auto;
-}
-.swatch .label {
-  text-transform: capitalize; text-align: center; line-height: 1.15;
-  max-width: 100%; overflow-wrap: anywhere; hyphens: none;
-}
-.swatch .key {
-  position: absolute; top: 3px; right: 5px;
-  color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums;
-}
-.swatch.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-
-/* brush */
-.brush-row { display: flex; align-items: center; gap: 8px; }
-#brush { flex: 1; accent-color: var(--accent); }
-.hint { font-size: 10px; color: var(--muted); }
 
 /* buttons */
-.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
-  border-radius: 999px; padding: 6px 11px; cursor: pointer; font-size: 12px;
+  border-radius: 999px; padding: 5px 10px; cursor: pointer; font-size: 11.5px;
   transition: border-color .12s, background .12s;
 }
 .pill:hover { border-color: #3a4055; background: #1c2130; }
 .pill.danger { color: var(--danger); }
 
-/* gallery */
-.gallery { display: flex; flex-wrap: wrap; gap: 6px; }
+/* brush */
+.brush-group #brush { width: 96px; accent-color: var(--accent); }
+.hint { font-size: 10px; color: var(--muted); }
+
+/* gallery — inline row of scenario buttons in the top bar */
+.gallery-group { flex: 1 1 auto; min-width: 0; }
+.gallery { display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; }
 .scenario {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--accent-2);
-  border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  border-radius: 7px; padding: 4px 9px; cursor: pointer; font-size: 11.5px;
+  white-space: nowrap; flex: 0 0 auto;
 }
 .scenario:hover { border-color: var(--accent-2); }
-
-.foot { margin-top: auto; padding-top: 12px; }
-.foot p { font-size: 11px; color: var(--muted); line-height: 1.5; }
 
 /* ---- stage ---- */
 #stage {
   position: relative; display: flex; align-items: center; justify-content: center;
+  min-height: 0; /* allow the 1fr row to shrink so the canvas can fit */
   background:
     radial-gradient(1200px 600px at 50% -10%, #141a28 0%, var(--bg) 60%);
   overflow: hidden;
 }
 #c {
-  width: min(100%, calc(100vh * 1.6));
-  height: auto; max-height: 100vh;
+  /* Fit within the stage row both ways: width capped by aspect ratio against
+     available height, height capped by the stage's own height (100%). */
+  width: min(100%, calc((100vh - 200px) * 1.6));
+  height: auto; max-height: 100%;
   image-rendering: pixelated;
-  border-left: 1px solid transparent;
   background: #0b0d12;
   box-shadow: 0 0 60px rgba(0,0,0,.6);
 }
+
+/* ---- bottom palette bar ---- */
+#palette-bar {
+  background: linear-gradient(0deg, var(--panel) 0%, #0e1119 100%);
+  border-top: 1px solid var(--line);
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+/* The palette is one horizontal flow: inline group dividers + small swatches,
+   left-to-right. Wraps to a second row if the viewport is narrow, and the bar
+   scrolls horizontally when even a single row overflows. Built from the live
+   PALETTE array in tools.js, so it adapts to however many materials exist. */
+.palette {
+  display: flex; flex-flow: row wrap; align-items: center; gap: 6px;
+}
+.palette-group {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+  padding: 0 4px 0 8px; margin-left: 4px;
+  border-left: 1px solid var(--line); align-self: stretch;
+  display: flex; align-items: center;
+}
+.palette-group.first { border-left: none; margin-left: 0; padding-left: 0; }
+
+.swatch {
+  display: inline-flex; flex-direction: row; align-items: center; gap: 5px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 7px; padding: 3px 8px 3px 5px; cursor: pointer;
+  font-size: 10.5px; position: relative; transition: border-color .12s, transform .05s;
+  white-space: nowrap; flex: 0 0 auto;
+}
+.swatch:hover { border-color: #3a4055; }
+.swatch:active { transform: translateY(1px); }
+.swatch .chip {
+  width: 12px; height: 12px; border-radius: 3px; background: var(--sw);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sw) 60%, transparent); flex: 0 0 auto;
+}
+.swatch .label {
+  text-transform: capitalize; line-height: 1;
+}
+.swatch .key {
+  color: var(--muted); font-size: 8.5px; font-variant-numeric: tabular-nums;
+  margin-left: 1px;
+}
+.swatch.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 
 /* HUD */
 .hud {
@@ -147,7 +156,76 @@ html, body {
   font-size: 11px; color: var(--muted);
 }
 
+/* ---- per-scenario instruction card ----
+   A small card near the top-center of the stage that explains the active
+   scenario (e.g. the Rube-Goldberg chain steps). Shown by tools.js when a
+   described scenario becomes active; auto-fades and is click-dismissible so it
+   never blocks play. Positioned clear of the HUD (top-right) and legend
+   (bottom-left). */
+.scenario-instructions {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  max-width: min(420px, 60%);
+  background: rgba(12,15,22,.82); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 11px 30px 12px 14px; color: var(--ink);
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  opacity: 1; transition: opacity .6s ease;
+  z-index: 5;
+}
+.scenario-instructions[hidden] { display: none; }
+.scenario-instructions.fading { opacity: 0; }
+.scenario-instructions .si-title {
+  font-size: 12.5px; font-weight: 700; letter-spacing: .3px;
+  color: var(--accent); margin-bottom: 6px;
+}
+.scenario-instructions .si-body {
+  font-size: 11.5px; line-height: 1.5; color: var(--ink);
+}
+.scenario-instructions .si-body .si-step { display: block; }
+.scenario-instructions .si-body .si-hint {
+  display: block; margin-top: 6px; color: var(--muted); font-size: 10.5px;
+}
+.scenario-instructions .si-close {
+  position: absolute; top: 6px; right: 8px;
+  background: none; border: none; color: var(--muted);
+  font-size: 17px; line-height: 1; cursor: pointer; padding: 2px 4px;
+}
+.scenario-instructions .si-close:hover { color: var(--ink); }
+
+/* ---- thermal overlay legend ----
+   Vertical color bar + live min/mid/max degC labels, bottom-left of the stage.
+   Shown only in thermal mode (JS toggles [hidden]). The bar background is set
+   by JS to the exact smooth inferno gradient the renderer uses; labels update
+   live with the scene's dynamic temperature range. */
+.thermal-legend {
+  position: absolute; left: 14px; bottom: 14px;
+  background: rgba(12,15,22,.72); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.thermal-legend[hidden] { display: none; }
+.thermal-legend .tl-title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--muted); margin-bottom: 8px;
+}
+.thermal-legend .tl-body { display: flex; gap: 8px; }
+.thermal-legend .tl-bar {
+  width: 14px; height: 104px; border-radius: 4px;
+  border: 1px solid var(--line);
+  /* filled by JS with the inferno gradient (top = hottest) */
+}
+.thermal-legend .tl-ticks {
+  display: flex; flex-direction: column; justify-content: space-between;
+  font-size: 11px; line-height: 1;
+}
+.thermal-legend .tl-mid { color: var(--muted); }
+
+/* Narrow viewports: let the brand shrink and the top bar wrap tighter. The
+   vertical stack (topbar / stage / palette-bar) already reflows naturally. */
 @media (max-width: 720px) {
-  #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  #left { flex-direction: row; flex-wrap: wrap; overflow-x: auto; }
+  #topbar { gap: 6px 12px; }
+  .brand .tag { display: none; }
+  #c { width: min(100%, calc((100vh - 240px) * 1.6)); }
 }

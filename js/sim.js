@@ -147,30 +147,47 @@ export class Sim {
       if (nx < 0 || nx >= w) continue;
       if (y < h - 1 && this.canDisplace(i, i + w + dx)) { this.swap(i, i + w + dx); return; }
     }
-    // LEVEL-FINDING HORIZONTAL SCAN (TPT-style, audit fix for mounding).
-    // viscosity = per-tick probability the cell is too thick to flow this tick;
-    // dispersion = max cells it may travel sideways. Crucially the scan walks
-    // THROUGH same-material and displaceable cells so it can reach a lower slot
-    // several columns away — that is what actually flattens a surface. It slides
-    // to the FURTHEST reachable empty (fast sheeting) or drops into any hole found.
+    // LEVEL-FINDING HORIZONTAL SCAN (TPT-style, audit fix for mounding), but
+    // with a HARD 1-CELL PER-TICK DISPLACEMENT CAP (teleport fix).
+    //
+    // viscosity = per-tick probability the cell is too thick to flow this tick.
+    // dispersion = how many cells the cell may LOOK AHEAD to decide which way to
+    // flow — it is a sensing range, NOT a per-tick hop distance. The cell scans
+    // THROUGH same-material and displaceable cells so it can SEE a lower slot or a
+    // drop several columns away (that intelligence is what flattens a surface),
+    // but it only ever MOVES ONE cell toward that target this tick. Over many
+    // ticks the fluid still sheets and finds its level (fast for low-viscosity
+    // water, slow for lava) — nothing jumps multiple cells in a single frame.
     const visc = a.viscosity === undefined ? 0.0 : a.viscosity;
     if (this.rng.next() < visc) return;                 // too thick to flow this tick
     const myId = g.mat[i];
     const reach = a.dispersion === undefined ? 4 : a.dispersion;
     for (const dx of [first, -first]) {
-      let ci = i, bestEmpty = -1;
+      // The immediate neighbor in this direction must itself be passable, or we
+      // can't step that way at all (a wall/heavier cell 1 over blocks the hop).
+      const adjX = x + dx;
+      if (adjX < 0 || adjX >= w) continue;
+      const adj = i + dx;
+      const adjMat = g.mat[adj];
+      const adjPassable = adjMat === M.EMPTY || adjMat === myId || this.canDisplace(i, adj);
+      if (!adjPassable) continue;                       // blocked one cell over
+
+      // Look ahead up to `reach` cells to confirm there IS a reason to flow this
+      // way (an empty slot to slide into, or a drop to fall through). We do not
+      // move to it directly — finding it just justifies the single step.
+      let ci = i, found = false;
       for (let s = 0; s < reach; s++) {
         const nx = (ci % w) + dx;
         if (nx < 0 || nx >= w) break;
         const nxt = ci + dx;
         const there = g.mat[nxt];
-        // a drop along the way (empty or lighter-liquid below) -> flow down there
-        if (y < h - 1 && this.canDisplace(i, nxt + w)) { this.swap(i, nxt + w); return; }
-        if (there === M.EMPTY) { bestEmpty = nxt; }
-        else if (there !== myId && !this.canDisplace(i, nxt)) break; // wall / heavier: stop
+        // a drop along the way (empty or lighter-liquid below) is a valid target
+        if (y < h - 1 && this.canDisplace(i, nxt + w)) { found = true; break; }
+        if (there === M.EMPTY) { found = true; break; } // an empty slot to fill
+        else if (there !== myId && !this.canDisplace(i, nxt)) break; // wall/heavier: stop
         ci = nxt;
       }
-      if (bestEmpty >= 0) { this.swap(i, bestEmpty); return; } // slide to furthest empty
+      if (found) { this.swap(i, adj); return; }          // step exactly ONE cell
     }
   }
 
@@ -279,6 +296,12 @@ export class Sim {
           const ortho = (up ? 1 : 0) + (dn ? 1 : 0) + (lf ? 1 : 0) + (rt ? 1 : 0);
           for (let k = 0; k < ortho; k++) {   // first `ortho` entries are the 4-neighbors
             const j = nbuf[k];
+            // Don't pour contact heat into EMPTY air: air has negligible thermal mass
+            // and (post air-insulator fix) doesn't conduct it onward, so heating it
+            // only produced a hot "halo" of open cells next to lava/fire (~400C) with
+            // no physical payoff. Ignition of adjacent fuel and heating of adjacent
+            // water/metal still fire because those targets are non-empty.
+            if (mat[j] === M.EMPTY) continue;
             if (temp[j] < temp[i]) temp[j] += (temp[i] - temp[j]) * 0.30;
           }
         }
@@ -305,7 +328,7 @@ export class Sim {
         //    temperature rises from `ignite` to `ignite + IGNITE_SCALE`. At ambient
         //    (below `ignite`) over = 0 -> p = 0, so NOTHING spontaneously combusts.
         //    Fire spreads organically: gas/gunpowder whoosh (high flammability),
-        //    wood/tar smolder (low). A separate HARD backstop guarantees ignition
+        //    wood/coal smolder (low). A separate HARD backstop guarantees ignition
         //    once a cell is genuinely superheated (real auto-ignition).
         if (d.flammable && d.ignite !== undefined && d.burnTo) {
           const t = temp[i];

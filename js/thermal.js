@@ -64,7 +64,12 @@ export class Thermal {
         const ti = temp[i];
         let flux = 0;
 
-        // 4-neighborhood; out-of-bounds acts as ambient sink (walls lose heat slowly)
+        // 4-neighborhood; out-of-bounds acts as ambient sink (walls lose heat slowly).
+        // Air (EMPTY) keeps its genuine low conductivity (0.03) so it still transmits
+        // heat across a thin gap between solids (e.g. lava->stone->air->metal floor in
+        // the Steam boiler). What stops air from HOARDING that heat — the actual bug —
+        // is the fast ambient relaxation of empty cells in the pass below, not a change
+        // to how much flux crosses air here.
         if (x > 0) { const j = i - 1; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
         else flux += 0.02 * (amb - ti);
         if (x < w - 1) { const j = i + 1; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
@@ -93,9 +98,42 @@ export class Thermal {
     // so this only bleeds off stray/accumulated heat, not the sources themselves.
     // Only the active band can be non-ambient, so relax just that span.
     const lo = yTop * w, hi = (yBot + 1) * w;
+    const EMPTY = M.EMPTY;
     for (let i = lo; i < hi; i++) {
       const d = MATERIALS[mat[i]];
-      if (d.id !== M.EMPTY) {
+      if (d.id === EMPTY) {
+        // AIR RELAXATION — the core of the "air too hot" fix. Air has negligible
+        // thermal mass, so OPEN air (exposed to sky) should never sit hot: we snap
+        // it hard toward ambient every tick. Before this, empty cells accumulated
+        // diffused heat with no relaxation and open sky next to lava crept to ~1100C.
+        //
+        // BUT a thin air GAP that forms a clean CHANNEL between two solid/liquid
+        // faces is a genuine conduction bridge (e.g. the Steam boiler's
+        // lava->stone->air->metal floor). If we snapped that gap to ambient too it
+        // would insulate the boiler and the water never boils. A clean channel has
+        // solids on exactly ONE opposite pair (up&down OR left&right) while the
+        // PERPENDICULAR pair stays open (the gap continues sideways) — a 1-cell sheet
+        // of air pressed between two plates. That air relaxes only gently so it can
+        // carry heat across.
+        //
+        // A dead-end POCKET (3-4 solid sides, e.g. air trapped in the volcano's rock
+        // wall) is NOT a useful bridge — heat flows in but nowhere cooler to go — so
+        // it must relax fast like open air, or it hoards heat to hundreds of C. The
+        // `!perp` guards below exclude those pockets: the moment a third side is
+        // solid, the channel test fails and the cell snaps to ambient.
+        const x = i % w, y = (i / w) | 0;
+        const upSolid = (y > 0)     && mat[i - w] !== EMPTY;
+        const dnSolid = (y < h - 1) && mat[i + w] !== EMPTY;
+        const lfSolid = (x > 0)     && mat[i - 1] !== EMPTY;
+        const rtSolid = (x < w - 1) && mat[i + 1] !== EMPTY;
+        const channel = (upSolid && dnSolid && !lfSolid && !rtSolid) ||
+                        (lfSolid && rtSolid && !upSolid && !dnSolid);
+        const rate = channel ? 0.02 : 0.4; // thin gap conducts; open air / pocket snaps
+        let e = temp[i] - amb;
+        e -= e * rate * dt;
+        temp[i] = amb + e;
+        continue;
+      } else {
         temp[i] -= (temp[i] - amb) * 0.005 * dt;
       }
       // extra radiative loss for very hot cells (glow scales with heat)

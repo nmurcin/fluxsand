@@ -11,52 +11,80 @@
 <body>
 <div id="app">
 
-  <aside id="left">
+  <!-- Top bar: brand + controls + gallery. Compact, horizontal, above the canvas. -->
+  <header id="topbar">
     <div class="brand">
       <span class="logo">✳</span>
-      <div>
+      <div class="brand-txt">
         <h1>Fluxsand</h1>
         <p class="tag">thermodynamic powder toy</p>
       </div>
     </div>
 
-    <div class="section-title">Materials</div>
-    <div id="palette" class="palette"></div>
-
-    <div class="section-title">Brush</div>
-    <div class="brush-row">
-      <input id="brush" type="range" min="0" max="20" value="6" />
-      <span class="hint">[ / ] to resize</span>
-    </div>
-
-    <div class="section-title">View</div>
-    <div class="btn-row">
+    <div class="topbar-group">
+      <span class="grp-label">View</span>
       <button data-overlay="normal" class="pill">Normal</button>
       <button data-overlay="thermal" class="pill">Thermal (F)</button>
       <button data-overlay="ascii" class="pill">ASCII (G)</button>
     </div>
 
-    <div class="section-title">Controls</div>
-    <div class="btn-row">
+    <div class="topbar-group">
+      <span class="grp-label">Sim</span>
       <button id="pauseBtn" class="pill">Pause (␣)</button>
       <button id="stepBtn" class="pill">Step (.)</button>
       <button id="clearBtn" class="pill danger">Clear (C)</button>
     </div>
 
-    <div class="section-title">Scenarios</div>
-    <div id="gallery" class="gallery"></div>
-
-    <div class="foot">
-      <p>Drop <b>water</b> on <b>lava</b> → obsidian + steam.<br/>
-         Ignite <b>oil</b> beside <b>ice</b> → watch the fire stall at water.</p>
+    <div class="topbar-group brush-group">
+      <span class="grp-label">Brush</span>
+      <input id="brush" type="range" min="0" max="20" value="6" />
+      <span class="hint">[ / ]</span>
     </div>
-  </aside>
 
+    <div class="topbar-group gallery-group">
+      <span class="grp-label">Scenes</span>
+      <div id="gallery" class="gallery"></div>
+    </div>
+  </header>
+
+  <!-- Main stage: the sim canvas fills the space above the palette. -->
   <main id="stage">
     <canvas id="c" width="1280" height="800"></canvas>
     <div id="hud" class="hud"></div>
     <div id="overlay-badge" class="overlay-badge"></div>
+    <!-- Per-scenario instruction card. Hidden by default; tools.js shows it
+         (with the scenario's title + step list) whenever a scenario that has a
+         description becomes active (tracked via __STATE__.lastScenario), and
+         auto-fades it after a few seconds. Click the × or the card to dismiss. -->
+    <div id="scenario-instructions" class="scenario-instructions" hidden>
+      <button id="si-close" class="si-close" title="Dismiss" aria-label="Dismiss">&times;</button>
+      <div id="si-title" class="si-title"></div>
+      <div id="si-body" class="si-body"></div>
+    </div>
+    <!-- Thermal overlay legend: a vertical color bar + live min/mid/max degC
+         labels. Hidden by default; shown only while the thermal overlay is
+         active (see tools.js). The bar's gradient is filled from the SAME
+         smooth inferno colormap the renderer uses. Sits bottom-left of the
+         stage, clear of the bottom palette strip which lives outside #stage. -->
+    <div id="thermal-legend" class="thermal-legend" hidden>
+      <div class="tl-title">Temp &deg;C</div>
+      <div class="tl-body">
+        <div class="tl-bar" id="tl-bar"></div>
+        <div class="tl-ticks">
+          <span class="tl-max" id="tl-max">-</span>
+          <span class="tl-mid" id="tl-mid">-</span>
+          <span class="tl-min" id="tl-min">-</span>
+        </div>
+      </div>
+    </div>
   </main>
+
+  <!-- Bottom palette: a compact horizontal strip of small material swatches,
+       grouped by category with inline dividers. Scrolls horizontally if the
+       viewport is narrow. Built by tools.js from the live PALETTE array. -->
+  <footer id="palette-bar">
+    <div id="palette" class="palette"></div>
+  </footer>
 
 </div>
 <script type="module" src="js/main.js"></script>
