@@ -22,45 +22,78 @@
 
 import { M } from './materials.js';
 
-// ---- drawing helpers --------------------------------------------------------
+// ---- virtual coordinate system ----------------------------------------------
+// Scenarios are authored in a fixed 320x200 VIRTUAL space (so the layouts read
+// the same regardless of the real grid resolution). Each scenario sets up the
+// scale via `dims` (see the W/H it destructures), and the drawing helpers below
+// map virtual coords -> real grid cells. This lets us raise the sim resolution
+// without rescaling every scenario by hand.
+export const VW = 320, VH = 200;
+let SX = 1, SY = 1;
+function setScale(grid) { SX = grid.w / VW; SY = grid.h / VH; }
+function rx(v) { return Math.round(v * SX); }
+function ry(v) { return Math.round(v * SY); }
+function rr(v) { return Math.max(1, Math.round(v * (SX + SY) * 0.5)); } // radius (avg scale)
+
+// ---- drawing helpers (accept VIRTUAL coords, write REAL cells) --------------
 
 // Filled axis-aligned rectangle (inclusive of both corners), order-agnostic.
 function fill(grid, x0, y0, x1, y1, id) {
-  const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
-  const ay = Math.min(y0, y1), by = Math.max(y0, y1);
+  const ax = Math.min(rx(x0), rx(x1)), bx = Math.max(rx(x0), rx(x1));
+  const ay = Math.min(ry(y0), ry(y1)), by = Math.max(ry(y0), ry(y1));
   for (let y = ay; y <= by; y++)
     for (let x = ax; x <= bx; x++)
       if (grid.inBounds(x, y)) grid.set(x, y, id);
 }
 
-// A single horizontal span (one row) — inclusive.
+// A single horizontal span (one virtual row -> a real band tall enough to be continuous).
 function row(grid, xa, xb, y, id) {
-  const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
-  for (let x = lo; x <= hi; x++) if (grid.inBounds(x, y)) grid.set(x, y, id);
+  const lo = Math.min(rx(xa), rx(xb)), hi = Math.max(rx(xa), rx(xb));
+  const y0 = ry(y), y1 = Math.max(y0, ry(y + 1) - 1); // cover the full scaled row height
+  for (let yy = y0; yy <= y1; yy++)
+    for (let x = lo; x <= hi; x++) if (grid.inBounds(x, yy)) grid.set(x, yy, id);
 }
 
-// A single vertical span (one column) — inclusive.
+// A single vertical span (one virtual column -> a real band wide enough to be continuous).
 function col(grid, x, ya, yb, id) {
-  const lo = Math.min(ya, yb), hi = Math.max(ya, yb);
-  for (let y = lo; y <= hi; y++) if (grid.inBounds(x, y)) grid.set(x, y, id);
+  const lo = Math.min(ry(ya), ry(yb)), hi = Math.max(ry(ya), ry(yb));
+  const x0 = rx(x), x1 = Math.max(x0, rx(x + 1) - 1);
+  for (let xx = x0; xx <= x1; xx++)
+    for (let y = lo; y <= hi; y++) if (grid.inBounds(xx, y)) grid.set(xx, y, id);
 }
 
-// Filled disc of radius r centered at (cx,cy).
+// Filled disc of virtual radius r centered at (cx,cy).
 function disc(grid, cx, cy, r, id) {
-  const r2 = r * r;
-  for (let y = cy - r; y <= cy + r; y++)
-    for (let x = cx - r; x <= cx + r; x++) {
-      const dx = x - cx, dy = y - cy;
+  const RX = rx(cx), RY = ry(cy), R = rr(r), r2 = R * R;
+  for (let y = RY - R; y <= RY + R; y++)
+    for (let x = RX - R; x <= RX + R; x++) {
+      const dx = x - RX, dy = y - RY;
       if (dx * dx + dy * dy <= r2 && grid.inBounds(x, y)) grid.set(x, y, id);
     }
 }
 
-// Overwrite a cell only if it currently holds material `onlyIf` (used to bore
-// a channel through solid rock without punching into open air first).
+// Set a single VIRTUAL point -> a real scaled block (use instead of raw grid.set
+// in scenario bodies, so hand-placed accents scale with resolution).
+function put(grid, x, y, id) {
+  const x0 = rx(x), x1 = Math.max(x0, rx(x + 1) - 1);
+  const y0 = ry(y), y1 = Math.max(y0, ry(y + 1) - 1);
+  for (let xx = x0; xx <= x1; xx++)
+    for (let yy = y0; yy <= y1; yy++)
+      if (grid.inBounds(xx, yy)) grid.set(xx, yy, id);
+}
+
+// Overwrite a cell only if it currently holds material `onlyIf` (bores a channel
+// through solid rock). Scales the virtual cell to a real block so channels stay
+// continuous at higher resolution.
 function carveIf(grid, x, y, onlyIf, id) {
-  if (!grid.inBounds(x, y)) return;
-  const i = grid.idx(x, y);
-  if (grid.mat[i] === onlyIf) grid.set(x, y, id);
+  const x0 = rx(x), x1 = Math.max(x0, rx(x + 1) - 1);
+  const y0 = ry(y), y1 = Math.max(y0, ry(y + 1) - 1);
+  for (let xx = x0; xx <= x1; xx++)
+    for (let yy = y0; yy <= y1; yy++) {
+      if (!grid.inBounds(xx, yy)) continue;
+      const i = grid.idx(xx, yy);
+      if (grid.mat[i] === onlyIf) grid.set(xx, yy, id);
+    }
 }
 
 // ---- scenarios --------------------------------------------------------------
@@ -73,7 +106,7 @@ export const SCENARIOS = {
   // crater. A little ice cap perches on the summit (melts + trickles), and two
   // small water pools rest in stone basins on the flanks (steam when reached).
   Volcano(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const groundY = H - 18;                 // top of the ground slab
@@ -134,7 +167,7 @@ export const SCENARIOS = {
   // radiates upward and thaws the ice from below and within — watch the melt
   // line advance and meltwater pool in the low spots.
   IceAge(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const bedrockTop = H - 40;
@@ -184,7 +217,7 @@ export const SCENARIOS = {
   // its latent-melt energy fast, glows incandescent, and slumps into the bath.
   // Oil-soaked wicks capped with fire ride on top for the ignition flash.
   Thermite(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 14;
@@ -207,20 +240,22 @@ export const SCENARIOS = {
     const rodBotY = bathBot - 3;
 
     for (let k = 0; k < count; k++) {
-      const rx = Math.round(cxL + stepX * (k + 0.5));
-      fill(grid, rx - 1, rodTopY, rx, rodBotY, M.METAL);   // 2-wide rod
+      // rod x-position in VIRTUAL space. Named rodX (NOT rx) so it never
+      // shadows the module-scope rx() scale function.
+      const rodX = Math.round(cxL + stepX * (k + 0.5));
+      fill(grid, rodX - 1, rodTopY, rodX, rodBotY, M.METAL);   // 2-wide rod
 
       // Oil bead + fire cap on the exposed tip for the ignition flash.
-      fill(grid, rx - 1, rodTopY - 3, rx, rodTopY - 1, M.OIL);
-      grid.set(rx - 1, rodTopY - 5, M.FIRE);
-      if (rng.chance(0.6)) grid.set(rx, rodTopY - 6, M.FIRE);
+      fill(grid, rodX - 1, rodTopY - 3, rodX, rodTopY - 1, M.OIL);
+      put(grid, rodX - 1, rodTopY - 5, M.FIRE);
+      if (rng.chance(0.6)) put(grid, rodX, rodTopY - 6, M.FIRE);
     }
 
     // A ragged oil ribbon skimming the rod tips so the flame front travels
     // across the crucible instead of sitting in nine isolated dots.
     const ribbonY = rodTopY - 2;
     for (let x = cxL + 4; x <= cxR - 4; x++)
-      if (rng.chance(0.5)) grid.set(x, ribbonY, M.OIL);
+      if (rng.chance(0.5)) put(grid, x, ribbonY, M.OIL);
   },
 
   // STEAM --------------------------------------------------------------------
@@ -230,7 +265,7 @@ export const SCENARIOS = {
   // stone hearth; heat conducts up through the metal (conduct 0.92) into the
   // water, driving it to a rolling boil — steam collects under the lid.
   Steam(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     // Ground/hearth base.
@@ -266,7 +301,7 @@ export const SCENARIOS = {
     for (let n = 0; n < 6; n++) {
       const sx = bx0 + 4 + rng.int(bx1 - bx0 - 8);
       const sy = interiorTop + 1 + rng.int(6);
-      grid.set(sx, sy, M.STEAM);
+      put(grid, sx, sy, M.STEAM);
     }
   },
 
@@ -276,7 +311,7 @@ export const SCENARIOS = {
   // one-to-few-cell aperture. Sand drains through the pinch and piles at its
   // angle of repose in the lower bulb — powder-flow beauty.
   Hourglass(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     // Floor to stand on.
@@ -319,7 +354,7 @@ export const SCENARIOS = {
       // sparse deterministic gaps make the packed sand look granular, not solid
       for (let x = cx - half; x <= cx + half; x++) {
         if (rng.chance(0.02)) continue;       // occasional void grain
-        grid.set(x, y, M.SAND);
+        put(grid, x, y, M.SAND);
       }
     }
 
@@ -337,7 +372,7 @@ export const SCENARIOS = {
   // nitrogen fog (a cryo liquid boiling *because the room is warm*). Two dry-ice
   // bricks on the tub rim sublime into a low CO2 haze for garnish.
   CryoLab(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 14;
@@ -365,7 +400,7 @@ export const SCENARIOS = {
 
     // Frame-one: LN2 already spilling into the gap so it reads live.
     for (let n = 0; n < 6; n++)
-      grid.set(cx - 3 + rng.int(7), tBot + wall + 1 + rng.int(4), M.LIQUID_NITROGEN);
+      put(grid, cx - 3 + rng.int(7), tBot + wall + 1 + rng.int(4), M.LIQUID_NITROGEN);
   },
 
   // SPARKWIRE DETONATION -----------------------------------------------------
@@ -376,7 +411,7 @@ export const SCENARIOS = {
   // out through a deliberately thin stone lid. A gasoline puddle to the right sits
   // in reach of the blast for a volatile secondary flash.
   PowderKeg(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 12;
@@ -392,13 +427,13 @@ export const SCENARIOS = {
 
     // Metal wire from a left-edge spark pad, THROUGH the wall, into the powder.
     const wireY = vBot - 20;
-    for (let x = 12; x <= vx0; x++) grid.set(x, wireY, M.METAL);       // open-air run to the wall
+    row(grid, 12, vx0, wireY, M.METAL);                              // open-air run to the wall
     for (let x = vx0 - wall - 1; x <= vx0; x++) carveIf(grid, x, wireY, M.STONE, M.METAL); // bore through wall
     col(grid, vx0 + 1, wireY - 6, wireY + 6, M.GUNPOWDER);            // wire tip buried in charge
 
     // The igniter: spark on the wire's left-edge pad.
-    grid.set(12, wireY, M.SPARK);
-    if (rng.chance(0.5)) grid.set(13, wireY, M.SPARK);
+    put(grid, 12, wireY, M.SPARK);
+    if (rng.chance(0.5)) put(grid, 13, wireY, M.SPARK);
 
     // Gasoline puddle to the right the blast can reach and ignite.
     fill(grid, vx1 + wall + 10, floorTop - 3, vx1 + wall + 40, floorTop - 1, M.GASOLINE);
@@ -412,7 +447,7 @@ export const SCENARIOS = {
   // liquids stratify above it, and a small stone shelf near the acid slowly
   // dissolves. Acid/base neutralization + density stratification, all in-frame.
   ChemLab(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 12;
@@ -435,7 +470,7 @@ export const SCENARIOS = {
 
     // A sprinkle of salt across the neutralization boundary (the reaction product).
     for (let x = gx0 + 2; x <= gx1 - 2; x++)
-      if (rng.chance(0.25)) grid.set(x, mid, M.SALT);
+      if (rng.chance(0.25)) put(grid, x, mid, M.SALT);
 
     // A small stone shelf at the top-left the acid runs across and slowly eats.
     row(grid, gx0, gx0 + 8, gTop + wt + 10, M.STONE);
@@ -449,7 +484,7 @@ export const SCENARIOS = {
   // frame. The severed steel drips into a catch pit below with a shallow water
   // quench for a steam puff. Open geometry: nothing hidden, the cut is the show.
   ThermiteFoundry(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 12;
@@ -466,8 +501,8 @@ export const SCENARIOS = {
 
     // Thermite pile heaped ON the beam, with a spark to set it off.
     fill(grid, cx - 16, beamY - 12, cx + 16, beamY - 1, M.THERMITE);
-    grid.set(cx, beamY - 13, M.SPARK);
-    if (rng.chance(0.5)) grid.set(cx - 1, beamY - 13, M.SPARK);
+    put(grid, cx, beamY - 13, M.SPARK);
+    if (rng.chance(0.5)) put(grid, cx - 1, beamY - 13, M.SPARK);
 
     // Catch pit below the cut, with a shallow water quench for a steam puff.
     const px0 = cx - 30, px1 = cx + 30, pTop = floorTop - 22;
@@ -485,7 +520,7 @@ export const SCENARIOS = {
   // with a metal block half-sunk that amalgamates. One legible source, four
   // parallel payoffs, all visible at once.
   RubeGoldberg(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
 
     const floorTop = H - 12;
@@ -516,13 +551,13 @@ export const SCENARIOS = {
 
     // Frame-one heat wisps rising off the spire so it reads live.
     for (let n = 0; n < 5; n++)
-      grid.set(cx - 4 + rng.int(9), chTop - 2 - rng.int(5), M.FIRE);
+      put(grid, cx - 4 + rng.int(9), chTop - 2 - rng.int(5), M.FIRE);
   },
 
   // EMPTY --------------------------------------------------------------------
   // A clean sandbox: just a stone floor to build on.
   Empty(grid, rng, d) {
-    const W = grid.w, H = grid.h;
+    const W = VW, H = VH;
     grid.clear();
     fill(grid, 0, H - 12, W - 1, H - 1, M.STONE);
   },
@@ -536,6 +571,7 @@ for (const k of Object.keys(SCENARIOS)) LOOKUP[k.toLowerCase()] = k;
 export function loadScenario(name, grid, rng, dims) {
   const key = LOOKUP[(name || '').toLowerCase()];
   if (!key) return false;
+  setScale(grid);   // map the virtual 320x200 authoring space onto the real grid
   SCENARIOS[key](grid, rng, dims);
   return true;
 }

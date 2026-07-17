@@ -27,10 +27,14 @@ function hash01(a, b, c, d) {
   return (h >>> 0) / 4294967296;
 }
 
-// Damage thresholds (blast energy at a cell, after falloff). Tuned for feel.
-const DENT_E = 0.9;      // clean metal buckles
-const BREACH_E = 1.8;    // dented metal (or strong hit on clean) breaches
-const BRITTLE_E = 1.2;   // glass/obsidian/stone/concrete shatter
+// Damage thresholds (blast energy at a cell, after falloff). Recalibrated per the
+// explosion audit (TPT-grounded): a single grain should DENT steel, never breach
+// alone — a packed charge breaches. Masonry is split out from brittle glass:
+// concrete/stone are as tough as a steel breach; glass/obsidian shatter easily.
+const DENT_E = 0.7;      // clean metal buckles -> dented_metal
+const BREACH_E = 1.6;    // dented (or a strong charge on clean) metal breaches
+const GLASS_E = 0.55;    // glass/obsidian shatter (most brittle)
+const MASONRY_E = 1.8;   // stone/concrete crumble (as tough as a metal breach)
 
 // materials that loose-fling outward (powders + liquids)
 function isLoose(ph) {
@@ -56,11 +60,44 @@ export class Blast {
   }
 
   // Resolve all queued detonations. Returns cells affected (for counters).
+  //
+  // CLUSTER SUPPRESSION (audit fix): in a packed charge EVERY grain queues a blast,
+  // and N independent overlapping discs collapse the metal->dented->breach two-hit
+  // in one tick, vaporizing huge wall regions. Instead we merge queued detonations
+  // that fall within a merge radius into ONE blast per cluster, and scale that
+  // blast's energy/radius by the grain count (log-scaled) — so a bigger charge is a
+  // bigger bang, but not linearly overpowered. Fully deterministic (queue order +
+  // integer math only; no rng, no wall clock).
   resolveAll() {
-    let affected = 0;
     const q = this.pending;
     this.pending = [];
-    for (let k = 0; k < q.length; k++) affected += this._detonate(q[k]);
+    const MERGE = 3; // grains within this many cells collapse into one cluster
+    const clusters = [];
+    for (let k = 0; k < q.length; k++) {
+      const d = q[k];
+      let merged = false;
+      for (let c = 0; c < clusters.length; c++) {
+        const cl = clusters[c];
+        if (Math.abs(cl.cx - d.cx) <= MERGE && Math.abs(cl.cy - d.cy) <= MERGE) {
+          // accumulate into the cluster centroid + grain count
+          cl.sx += d.cx; cl.sy += d.cy; cl.n++;
+          cl.baseE = Math.max(cl.baseE, d.E);
+          cl.baseR = Math.max(cl.baseR, d.R);
+          cl.cx = Math.round(cl.sx / cl.n); cl.cy = Math.round(cl.sy / cl.n);
+          merged = true; break;
+        }
+      }
+      if (!merged) clusters.push({ cx: d.cx, cy: d.cy, sx: d.cx, sy: d.cy, n: 1, baseE: d.E, baseR: d.R });
+    }
+    let affected = 0;
+    for (let c = 0; c < clusters.length; c++) {
+      const cl = clusters[c];
+      // log-scaled: 1 grain -> baseE; 4 grains -> ~2x; 16 -> ~3x. Radius grows sqrt.
+      const scale = 1 + Math.log2(cl.n <= 0 ? 1 : cl.n);
+      const E = cl.baseE * scale;
+      const R = Math.min(cl.baseR + Math.floor(Math.sqrt(cl.n)), 12);
+      affected += this._detonate({ cx: cl.cx, cy: cl.cy, E, R, salt: (this._salt = (this._salt + 1) | 0) });
+    }
     return affected;
   }
 
@@ -114,31 +151,36 @@ export class Blast {
           continue;
         }
         if (id === M.GLASS || id === M.OBSIDIAN) {
-          if (e >= BRITTLE_E * 0.8) { g.convert(i, M.EMPTY, false); affected++; }
+          if (e >= GLASS_E) { g.convert(i, M.EMPTY, false); affected++; }
           continue;
         }
         if (id === M.STONE || id === M.CONCRETE) {
-          // stone/concrete only crumble very close to a strong blast, else resist
-          if (e >= BRITTLE_E) { g.convert(i, hash01(x, y, cx, cy, salt) < 0.5 ? M.SAND : M.EMPTY, false); affected++; }
+          // stone/concrete are as tough as a metal breach — only a strong charge
+          // (not a lone grain) crumbles them, half to sand rubble.
+          if (e >= MASONRY_E) { g.convert(i, hash01(x, y, cx, cy, salt) < 0.5 ? M.SAND : M.EMPTY, false); affected++; }
           continue;
         }
 
-        // (d) loose powders/liquids: fling outward + heat
+        // (d) loose powders/liquids: fling outward + heat. hop scales with energy
+        // (1 + floor(e*3), capped) and walks inward until it finds an empty cell so
+        // debris still moves when the far cell is blocked (audit fix). Marks BOTH
+        // vacated source and destination as moved to prevent an extra CA step.
         if (isLoose(def.phase)) {
           temp[i] += e * 60;
-          // fling: try to hop this cell 1-2 steps down the radial direction into empty
           const sx = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
           const sy = dy === 0 ? 0 : (dy > 0 ? 1 : -1);
-          const hop = e > 1.0 ? 2 : 1;
-          const tx = x + sx * hop, ty = y + sy * hop;
-          if (g.inBounds(tx, ty)) {
+          let hop = 1 + Math.floor(e * 3);
+          if (hop > 5) hop = 5;
+          for (; hop >= 1; hop--) {
+            const tx = x + sx * hop, ty = y + sy * hop;
+            if (!g.inBounds(tx, ty)) continue;
             const j = ty * w + tx;
             if (mat[j] === M.EMPTY) {
-              // swap outward
               const tm = mat[i], tt = temp[i], tl = g.latent[i], tf = g.life[i];
               mat[i] = mat[j]; temp[i] = temp[j]; g.latent[i] = g.latent[j]; g.life[i] = g.life[j];
               mat[j] = tm; temp[j] = tt; g.latent[j] = tl; g.life[j] = tf;
-              g.moved[j] = 1;
+              g.moved[j] = 1; g.moved[i] = 1;
+              break;
             }
           }
           affected++;

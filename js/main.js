@@ -13,8 +13,8 @@ import { SCENARIOS, loadScenario } from './scenarios.js';
 import { initUI } from './tools.js';
 import { encodeScene, decodeScene, applyScene } from './share.js';
 
-export const GRID_W = 320;
-export const GRID_H = 200;
+export const GRID_W = 400;
+export const GRID_H = 250;
 const DEFAULT_SEED = 1337;
 
 const canvas = document.getElementById('c');

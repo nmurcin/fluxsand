@@ -112,23 +112,32 @@ export class Sim {
     if (y >= h - 1) return;
     const below = i + w;
     if (this.canDisplace(i, below)) { this.swap(i, below); return; }
-    // diagonal repose: try down-left / down-right in seeded order
+    // ANGLE OF REPOSE: only slide diagonally with probability (1 - repose). High
+    // repose (snow 0.7) rests at a steep angle and rarely slides -> tall drifts;
+    // low repose (ash 0.5) slumps flatter. (audit fix: repose was declared, unused.)
+    const repose = MATERIALS[g.mat[i]].repose;
+    if (repose !== undefined && this.rng.next() < repose) return; // rest at angle
     const first = this.rng.next() < 0.5 ? -1 : 1;
     for (const dx of [first, -first]) {
       const nx = x + dx;
       if (nx < 0 || nx >= w) continue;
       const d = i + w + dx;
-      if (this.canDisplace(i, d)) {
-        // only slide if the straight-below is blocked (piling behavior)
-        this.swap(i, d);
-        return;
-      }
+      if (this.canDisplace(i, d)) { this.swap(i, d); return; }
     }
   }
 
   moveLiquid(x, y, i) {
     const g = this.g, w = g.w, h = g.h;
     const a = MATERIALS[g.mat[i]];
+    // BUOYANCY: a lighter liquid rises through a strictly heavier liquid above it
+    // (oil/gasoline float up out of water) — the mirror of density sinking, so
+    // immiscible layers separate cleanly in both directions. (audit fix)
+    if (y > 0) {
+      const up = MATERIALS[g.mat[i - w]];
+      if (up.phase === PHASE.LIQUID && up.density > a.density && this.rng.next() < 0.5) {
+        this.swap(i, i - w); return;
+      }
+    }
     // fall straight down (into empty or a lighter fluid/gas -> density sinking)
     if (y < h - 1 && this.canDisplace(i, i + w)) { this.swap(i, i + w); return; }
     // diagonal down
@@ -138,33 +147,30 @@ export class Sim {
       if (nx < 0 || nx >= w) continue;
       if (y < h - 1 && this.canDisplace(i, i + w + dx)) { this.swap(i, i + w + dx); return; }
     }
-    // VISCOSITY-GATED SIDEWAYS SPREAD.
-    // A liquid's spread rate scales inversely with viscosity: water (0.0) sheets
-    // out every tick over many cells; oil (~0.4) is medium; lava (~0.95) barely
-    // creeps; tar/honey (~0.99) almost holds shape. Viscosity also caps how far a
-    // cell may travel sideways in one tick (dispersion distance).
+    // LEVEL-FINDING HORIZONTAL SCAN (TPT-style, audit fix for mounding).
+    // viscosity = per-tick probability the cell is too thick to flow this tick;
+    // dispersion = max cells it may travel sideways. Crucially the scan walks
+    // THROUGH same-material and displaceable cells so it can reach a lower slot
+    // several columns away — that is what actually flattens a surface. It slides
+    // to the FURTHEST reachable empty (fast sheeting) or drops into any hole found.
     const visc = a.viscosity === undefined ? 0.0 : a.viscosity;
-    // probability this viscous cell moves sideways at all this tick
-    if (this.rng.next() < visc * 0.92) return;   // too thick to flow this tick
-    // dispersion: thin liquids search several cells for a downhill/empty slot
-    const reach = 1 + Math.round((1 - visc) * 6);  // water ~7, oil ~4, lava ~1
+    if (this.rng.next() < visc) return;                 // too thick to flow this tick
+    const myId = g.mat[i];
+    const reach = a.dispersion === undefined ? 4 : a.dispersion;
     for (const dx of [first, -first]) {
-      let step = 0;
-      let cx = x, ci = i;
-      while (step < reach) {
-        const nx = cx + dx;
+      let ci = i, bestEmpty = -1;
+      for (let s = 0; s < reach; s++) {
+        const nx = (ci % w) + dx;
         if (nx < 0 || nx >= w) break;
-        const s = ci + dx;
-        // prefer to flow into empty, or sink one further if there's a drop
-        if (g.mat[s] === M.EMPTY) {
-          // if there's a hole below the destination, fall in there (finds level)
-          if (y < h - 1 && g.mat[s + w] === M.EMPTY) { this.swap(i, s + w); return; }
-          this.swap(i, s); return;
-        }
-        // can we displace a lighter liquid to the side to keep flowing? (level-finding)
-        if (!this.canDisplace(i, s)) break;
-        this.swap(i, s); return;
+        const nxt = ci + dx;
+        const there = g.mat[nxt];
+        // a drop along the way (empty or lighter-liquid below) -> flow down there
+        if (y < h - 1 && this.canDisplace(i, nxt + w)) { this.swap(i, nxt + w); return; }
+        if (there === M.EMPTY) { bestEmpty = nxt; }
+        else if (there !== myId && !this.canDisplace(i, nxt)) break; // wall / heavier: stop
+        ci = nxt;
       }
+      if (bestEmpty >= 0) { this.swap(i, bestEmpty); return; } // slide to furthest empty
     }
   }
 
@@ -188,22 +194,36 @@ export class Sim {
         }
       }
     } else {
-      // heavy gas sinks and pools (smothers fire): try to fall
-      if (y < g.h - 1 && g.mat[i + w] === M.EMPTY) { this.swap(i, i + w); return; }
+      // heavy gas sinks and pools (smothers fire): fall into empty OR a lighter gas
+      // (so CO2 sinks THROUGH steam/smoke to blanket a fire from below).
+      if (y < g.h - 1 && this.canSinkGasInto(i, i + w)) { this.swap(i, i + w); return; }
       const first = this.rng.next() < 0.5 ? -1 : 1;
       for (const dx of [first, -first]) {
         const nx = x + dx;
         if (nx < 0 || nx >= w) continue;
-        if (y < g.h - 1 && g.mat[i + w + dx] === M.EMPTY) { this.swap(i, i + w + dx); return; }
+        if (y < g.h - 1 && this.canSinkGasInto(i, i + w + dx)) { this.swap(i, i + w + dx); return; }
       }
     }
-    // drift sideways (dissipation) — both kinds spread laterally
+    // drift sideways (dissipation) — spread through empty OR any other gas so
+    // plumes MIX and thin out instead of clumping against each other.
     const fd = this.rng.next() < 0.5 ? -1 : 1;
     for (const dx of [fd, -fd]) {
       const nx = x + dx;
       if (nx < 0 || nx >= w) continue;
-      if (g.mat[i + dx] === M.EMPTY) { this.swap(i, i + dx); return; }
+      const bId = g.mat[i + dx];
+      if (bId === M.EMPTY || MATERIALS[bId].phase === PHASE.GAS) {
+        if (bId === M.EMPTY || bId !== g.mat[i]) { this.swap(i, i + dx); return; }
+      }
     }
+  }
+
+  // a heavy gas can sink into empty or a strictly-lighter gas below it
+  canSinkGasInto(i, j) {
+    const g = this.g;
+    const bId = g.mat[j];
+    if (bId === M.EMPTY) return true;
+    const b = MATERIALS[bId];
+    return b.phase === PHASE.GAS && b.density < MATERIALS[g.mat[i]].density;
   }
 
   canRiseInto(i, j) {
@@ -213,6 +233,8 @@ export class Sim {
     const b = MATERIALS[bId];
     // gases rise through liquids (bubble up)
     if (b.phase === PHASE.LIQUID) return true;
+    // a light gas bubbles up through a strictly-heavier gas (e.g. through CO2)
+    if (b.phase === PHASE.GAS && b.density > MATERIALS[g.mat[i]].density) return true;
     return false;
   }
 
@@ -272,7 +294,7 @@ export class Sim {
             if (nid === M.FIRE || nid === M.EMBER || nid === M.SPARK || nid === M.LAVA) { touched = true; break; }
           }
           if (touched) {
-            this.blast.queue(x, y, 2.2, d.explosive);
+            this.blast.queue(x, y, 1.0, d.explosive);
             g.convert(i, M.FIRE, false); temp[i] = 800;
             count++; continue;
           }
@@ -299,8 +321,9 @@ export class Sim {
           }
           if (lit) {
             // EXPLOSIVE materials (gunpowder) detonate: queue a radial blast at this
-            // cell before converting it. `explosive` is the blast radius.
-            if (d.explosive) this.blast.queue(x, y, 2.2, d.explosive);
+            // cell before converting it. `explosive` is the per-grain blast radius;
+            // resolveAll() merges a packed charge's grains into a scaled cluster blast.
+            if (d.explosive) this.blast.queue(x, y, 1.0, d.explosive);
             g.convert(i, d.burnTo(), false); count++; continue;
           }
         }

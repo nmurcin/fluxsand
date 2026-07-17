@@ -42,6 +42,74 @@ import cdp  # noqa: E402
 APP = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 INDEX_URL_PATH = "/index.html"
 
+# ---------------------------------------------------------------------------
+# Resolution independence.
+#
+# The sim grid size is a runtime property (window.__STATE__.grid = {w,h}); it was
+# 320x200 historically and is now 480x300. Tests must NOT hardcode either number.
+# We read the live dims ONCE after boot into GRID, and every fixture derives its
+# paint coordinates from GRID["w"]/GRID["h"] via the helpers below. The reference
+# resolution the fixtures were originally authored at is 320x200; helpers that
+# scale a legacy coordinate do so proportionally so the same relative layout is
+# reproduced at any resolution.
+# ---------------------------------------------------------------------------
+
+REF_W, REF_H = 320, 200  # resolution the original literal coordinates targeted
+GRID = {"w": REF_W, "h": REF_H}  # overwritten with live dims at suite start
+
+
+def _load_grid(c):
+    """Read the live grid dims from __STATE__ once and cache them in GRID."""
+    g = c.state("window.__STATE__.grid") or {}
+    w, h = g.get("w"), g.get("h")
+    if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+        GRID["w"], GRID["h"] = w, h
+    return dict(GRID)
+
+
+def _sx(x):
+    """Scale a reference (320-wide) x coordinate to the live grid, clamped in-bounds."""
+    w = GRID["w"]
+    v = int(round(x * (w - 1) / (REF_W - 1)))
+    return max(0, min(w - 1, v))
+
+
+def _sy(y):
+    """Scale a reference (200-tall) y coordinate to the live grid, clamped in-bounds."""
+    h = GRID["h"]
+    v = int(round(y * (h - 1) / (REF_H - 1)))
+    return max(0, min(h - 1, v))
+
+
+def _paint_rect(c, x0, y0, x1, y1, name):
+    """paintRect with REFERENCE coordinates, scaled to the live grid."""
+    return c.eval(
+        f"return window.__FLUX.paintRect({_sx(x0)},{_sy(y0)},{_sx(x1)},{_sy(y1)},'{name}')"
+    )
+
+
+def _paint_vstack(c, x0, x1, bands, top):
+    """Paint vertically stacked, GUARANTEED-adjacent bands sharing an x-span.
+
+    Independently scaling two "touching" reference rows can round into a 1-row gap,
+    which silently breaks contact reactions (lava+water, acid+lye, ...). This helper
+    lays bands down from a common `top` row using integer thicknesses so consecutive
+    bands share an edge with NO gap, at any resolution.
+
+    x0,x1  : reference x-span (scaled here)
+    bands  : list of (name, thickness_rows) from top to bottom, thicknesses in LIVE rows
+    top    : live top row of the first band
+    Returns the live y just past the bottom of the last band.
+    """
+    sx0, sx1 = _sx(x0), _sx(x1)
+    H = GRID["h"]
+    y = top
+    for name, thick in bands:
+        y1 = min(H - 1, y + thick - 1)
+        c.eval(f"return window.__FLUX.paintRect({sx0},{y},{sx1},{y1},'{name}')")
+        y = y1 + 1
+    return y
+
 # The app ships favicon.svg, so in normal operation NO 404s occur at all. We keep a
 # narrow favicon-only whitelist purely as belt-and-suspenders (e.g. a browser that
 # probes /favicon.ico regardless): only a 404 whose text mentions 'favicon' is ignored.
@@ -145,13 +213,25 @@ def test_boots(c):
     pmiss = DOCUMENTED_PHASE_KEYS - pkeys
     if pmiss:
         return (name, False, f"cellsByPhase missing keys: {sorted(pmiss)}")
-    if st.get("grid") != {"w": 320, "h": 200}:
-        return (name, False, f"grid dims wrong: {st.get('grid')}")
+    # Resolution-independent grid check: the grid must EXIST and be a sane, positive
+    # size. The historical minimum is 320x200; any resolution at least that large with
+    # integer, positive dims is acceptable (the point is "grid present and reasonable",
+    # not a specific pixel count).
+    g = st.get("grid")
+    if not isinstance(g, dict) or "w" not in g or "h" not in g:
+        return (name, False, f"grid missing/malformed: {g!r}")
+    gw, gh = g.get("w"), g.get("h")
+    if not (isinstance(gw, int) and isinstance(gh, int)):
+        return (name, False, f"grid dims not integers: {g!r}")
+    if not (gw > 0 and gh > 0):
+        return (name, False, f"grid dims not positive: {g!r}")
+    if not (gw >= 320 and gh >= 200):
+        return (name, False, f"grid smaller than 320x200 minimum: {g!r}")
     errs = _real_errors(c)
     if errs:
         return (name, False, f"uncaught JS errors: {errs[:5]}")
-    return (name, True, f"ready=True, all keys present, grid=320x200, 0 real JS errors "
-                        f"(ignored {len(c.errors)-len(errs)} favicon 404s)")
+    return (name, True, f"ready=True, all keys present, grid={gw}x{gh} (>=320x200, sane), "
+                        f"0 real JS errors (ignored {len(c.errors)-len(errs)} favicon 404s)")
 
 
 def test_ticks_advance(c):
@@ -198,16 +278,20 @@ def test_replay_integrity(c):
                 f"replay([],42)=0x{int(replay_hash):08x} != fresh step(1)=0x{int(fresh_hash):08x}")
     # Second leg: a non-trivial replay log must also reproduce the equivalent live run.
     # Log paints a lava block at tick 0, then relies on determinism through tick 40.
+    # Coordinates are scaled to the live grid so both the replay log and the live
+    # equivalent use the SAME (in-bounds) cells at any resolution.
+    lav = [_sx(120), _sy(150), _sx(200), _sy(175)]
+    wat = [_sx(140), _sy(120), _sx(180), _sy(140)]
     log = [
-        {"tick": 0, "op": "paintRect", "args": [120, 150, 200, 175, "lava"]},
-        {"tick": 5, "op": "paintRect", "args": [140, 120, 180, 140, "water"]},
+        {"tick": 0, "op": "paintRect", "args": [lav[0], lav[1], lav[2], lav[3], "lava"]},
+        {"tick": 5, "op": "paintRect", "args": [wat[0], wat[1], wat[2], wat[3], "water"]},
     ]
     # Live equivalent: fresh reset+reseed(42), apply same ops at same ticks, step to 40.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(42)")
-    c.eval("return window.__FLUX.paintRect(120,150,200,175,'lava')")
+    c.eval(f"return window.__FLUX.paintRect({lav[0]},{lav[1]},{lav[2]},{lav[3]},'lava')")
     c.eval("return window.__FLUX.step(5)")
-    c.eval("return window.__FLUX.paintRect(140,120,180,140,'water')")
+    c.eval(f"return window.__FLUX.paintRect({wat[0]},{wat[1]},{wat[2]},{wat[3]},'water')")
     # replay stops after maxTick (5) with one final step at tick 5; match that horizon.
     c.eval("return window.__FLUX.step(1)")  # tick 5's step (replay does tk<=maxTick then step)
     live2 = c.eval("return window.__FLUX.stateHash()")
@@ -251,9 +335,9 @@ def test_fire_stalls_at_water(c):
     # fire STALLS and the water mass is preserved (little-to-no steam at the front).
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(42)")
-    c.eval("return window.__FLUX.paintRect(96,60,104,120,'oil')")
-    c.eval("return window.__FLUX.paintRect(80,124,120,132,'water')")
-    c.eval("return window.__FLUX.paintRect(97,60,103,66,'fire')")
+    _paint_rect(c, 96, 60, 104, 120, 'oil')
+    _paint_rect(c, 80, 124, 120, 132, 'water')  # water band just below the oil column
+    _paint_rect(c, 97, 60, 103, 66, 'fire')     # fire lit at the top of the oil
     # paintRect does not publish __STATE__; step(0) republishes totals WITHOUT
     # advancing the sim, so these baselines reflect what was actually painted.
     c.eval("return window.__FLUX.step(0)")
@@ -289,8 +373,14 @@ def test_lava_water_obsidian_steam(c):
     name = "07 lava+water -> obsidian + steam: obsidian rises from 0, gas rises"
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(1)")
-    c.eval("return window.__FLUX.paintRect(120,150,200,180,'lava')")
-    c.eval("return window.__FLUX.paintRect(140,120,180,140,'water')")
+    # Water must sit DIRECTLY on top of the lava (touching) so the contact reaction
+    # (lava + water -> obsidian + steam) actually fires. Lay a water band and a lava band
+    # as adjacent stacked bands (no gap) via _paint_vstack, positioned in the lower-mid
+    # grid and centered horizontally. Thicknesses scale with grid height.
+    H = GRID["h"]
+    band = max(8, H // 8)           # each band ~H/8 tall
+    top = H * 9 // 20               # start bands a bit below mid-grid
+    _paint_vstack(c, 130, 190, [("water", band), ("lava", band)], top)
     obs0 = _mass(c, "obsidian")
     gas0 = _phase(c, "gas")
     steam0 = _mass(c, "steam")
@@ -344,8 +434,12 @@ def test_melting(c):
     # melts to WATER THAT SURVIVES — the cleanest, reaction-free proof of solid->liquid.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(5)")
-    c.eval("return window.__FLUX.paintRect(0,190,319,199,'stone')")  # floor to hold meltwater
-    c.eval("return window.__FLUX.paintRect(150,150,170,160,'ice')")
+    W, H = GRID["w"], GRID["h"]
+    # Floor: a full-width stone band along the true bottom rows so meltwater is caught
+    # regardless of grid height (not a hardcoded y=190..199).
+    c.eval(f"return window.__FLUX.paintRect(0,{H-10},{W-1},{H-1},'stone')")
+    # Ice block near mid-grid; scaled from the original 150..170 x 150..160 layout.
+    _paint_rect(c, 150, 150, 170, 160, 'ice')
     c.eval("return window.__FLUX.step(0)")  # publish baseline without advancing sim
     ice0 = _mass(c, "ice")
     if ice0 <= 0:
@@ -369,8 +463,10 @@ def test_melting(c):
     c.eval("return window.__FLUX.loadScenario('Thermite')")
     c.eval("return window.__FLUX.step(600)")
     molten = _mass(c, "molten_metal")
+    # Scan the FULL live grid (not a hardcoded 320x200) for the hottest metal cell.
     max_metal_t = c.eval(
-        "var o=-999;for(var y=0;y<200;y++)for(var x=0;x<320;x++){"
+        "var W=window.__STATE__.grid.w,H=window.__STATE__.grid.h;"
+        "var o=-999;for(var y=0;y<H;y++)for(var x=0;x<W;x++){"
         "var cc=window.__FLUX.cellAt(x,y);"
         "if(cc&&cc.material==='metal'&&cc.tempC>o)o=cc.tempC;}return o;"
     )
@@ -448,8 +544,12 @@ def test_cryo_flash_freeze(c):
     # ambient melts it back), so we track the PEAK ice mass across the run, not the final.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(21)")
-    c.eval("return window.__FLUX.paintRect(140,150,180,170,'water')")
-    c.eval("return window.__FLUX.paintRect(140,128,180,149,'liquid_nitrogen')")
+    # LN2 band sits DIRECTLY on top of the water pool (adjacent, no gap) so the cold sink
+    # contacts the water. Stacked bands scaled from the 320x200 reference geometry.
+    H = GRID["h"]
+    band = max(8, H // 9)
+    top = H * 128 // 200            # ~ the original y=128 LN2 top, scaled
+    _paint_vstack(c, 140, 180, [("liquid_nitrogen", band), ("water", band)], top)
     c.eval("return window.__FLUX.step(0)")  # publish baseline without advancing
     water0 = _mass(c, "water")
     ln2_0 = _mass(c, "liquid_nitrogen")
@@ -481,9 +581,14 @@ def test_thermite_burns_through_metal(c):
     # 1400C melt point. The observable that the burn happened is molten_metal mass > 0.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(9)")
-    c.eval("return window.__FLUX.paintRect(150,150,180,165,'metal')")
-    c.eval("return window.__FLUX.paintRect(150,132,180,149,'thermite')")
-    c.eval("return window.__FLUX.paintRect(163,130,167,131,'spark')")
+    # Stack (top->bottom): spark on thermite pile on a metal plate, all adjacent (no gap).
+    # Scaled from the 320x200 reference; a narrow spark strip sits atop the thermite.
+    H = GRID["h"]
+    tb = max(10, H // 12)           # thermite band thickness
+    mb = max(10, H // 12)           # metal band thickness
+    top = H * 130 // 200            # ~ the original spark top y=130, scaled
+    # spark: 2-row strip; thermite: tb rows; metal: mb rows -- consecutive & touching.
+    end = _paint_vstack(c, 150, 180, [("spark", 2), ("thermite", tb), ("metal", mb)], top)
     c.eval("return window.__FLUX.step(0)")
     metal0 = _mass(c, "metal")
     therm0 = _mass(c, "thermite")
@@ -511,13 +616,14 @@ def test_gasoline_ignites_from_spark(c):
     # (fire decays to smoke and away), so track the PEAK combustion mass (fire+smoke).
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(4)")
-    c.eval("return window.__FLUX.paintRect(100,185,220,189,'stone')")
-    c.eval("return window.__FLUX.paintRect(130,178,190,184,'gasoline')")
+    # Stone floor with a gasoline pool resting on it; scaled from the 320x200 reference.
+    _paint_rect(c, 100, 185, 220, 189, 'stone')
+    _paint_rect(c, 130, 178, 190, 184, 'gasoline')
     c.eval("return window.__FLUX.step(5)")  # let the gasoline settle onto the floor
     gas0 = _mass(c, "gasoline")
     if gas0 <= 0:
         return (name, False, f"fixture invalid: no gasoline settled (gas0={gas0})")
-    c.eval("return window.__FLUX.paintRect(158,180,162,182,'spark')")
+    _paint_rect(c, 158, 180, 162, 182, 'spark')  # spark dropped into the gasoline pool
     c.eval("return window.__FLUX.step(0)")
     combust_peak = 0
     for _ in range(20):
@@ -540,8 +646,12 @@ def test_acid_lye_neutralization(c):
     # consumes both reactants and produces salt (from acid) + water (from lye).
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(11)")
-    c.eval("return window.__FLUX.paintRect(120,100,160,120,'acid')")
-    c.eval("return window.__FLUX.paintRect(120,121,160,141,'lye')")
+    # Acid band directly on top of a lye band (adjacent rows, no gap) so every column has
+    # an acid/lye contact; stacked bands scaled from the 320x200 reference.
+    H = GRID["h"]
+    band = max(10, H // 10)
+    top = H * 100 // 200            # ~ the original acid top y=100, scaled
+    _paint_vstack(c, 120, 160, [("acid", band), ("lye", band)], top)
     c.eval("return window.__FLUX.step(0)")  # baseline without advancing
     acid0 = _mass(c, "acid")
     salt0 = _mass(c, "salt")
@@ -570,13 +680,26 @@ def test_mercury_sinks_below_water(c):
     # We compute the mean y of mercury cells vs water cells; mercury lower = higher y.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(17)")
-    c.eval("return window.__FLUX.paintRect(0,195,319,199,'stone')")  # floor to contain the column
-    c.eval("return window.__FLUX.paintRect(150,110,170,130,'water')")
-    c.eval("return window.__FLUX.paintRect(150,88,170,109,'mercury')")  # mercury on top (unstable)
+    W, H = GRID["w"], GRID["h"]
+    floor_top = H - 5
+    # Full-width stone floor at the true bottom to contain the fluid column.
+    c.eval(f"return window.__FLUX.paintRect(0,{floor_top},{W-1},{H-1},'stone')")
+    # Mercury painted directly ON TOP of the water column (adjacent, unstable). Bands are
+    # centered horizontally and sit above the floor; thicknesses scale with grid height.
+    band = max(10, H // 9)
+    col_x0, col_x1 = 150, 170                     # reference x-span (scaled by _paint_vstack)
+    top = floor_top - 2 * band                    # water+mercury stack ends just above floor
+    _paint_vstack(c, col_x0, col_x1, [("mercury", band), ("water", band)], top)
     c.eval("return window.__FLUX.step(120)")  # let buoyancy re-sort
+    # Scan the full settled column: x across the (scaled) band with a little margin, y from
+    # the painted top down to the floor, so mercury that sank to the floor is counted.
+    scan_x0 = max(0, _sx(col_x0) - 5)
+    scan_x1 = min(W - 1, _sx(col_x1) + 5)
+    scan_y0 = max(0, top - 5)
+    scan_y1 = floor_top  # exclusive upper bound below; cells at/above the floor
     res = c.eval(
         "var my=0,mn=0,wy=0,wn=0;"
-        "for(var y=80;y<195;y++)for(var x=145;x<=175;x++){"
+        f"for(var y={scan_y0};y<{scan_y1};y++)for(var x={scan_x0};x<={scan_x1};x++){{"
         "var cc=window.__FLUX.cellAt(x,y);if(!cc)continue;"
         "if(cc.material==='mercury'){my+=y;mn++;}"
         "if(cc.material==='water'){wy+=y;wn++;}}"
@@ -601,13 +724,14 @@ def test_co2_smothers_fire(c):
     # assertion: the fire must NOT grow above its starting mass, and it should end low.
     c.eval("return window.__FLUX.reset()")
     c.eval("return window.__FLUX.reseed(6)")
-    c.eval("return window.__FLUX.paintRect(140,180,180,189,'wood')")
-    c.eval("return window.__FLUX.paintRect(150,176,170,179,'fire')")
+    # Wood bed with a fire on it; scaled from the 320x200 reference. Fire sits on the wood.
+    _paint_rect(c, 140, 180, 180, 189, 'wood')
+    _paint_rect(c, 150, 176, 170, 179, 'fire')
     c.eval("return window.__FLUX.step(0)")
     fire0 = _mass(c, "fire")
     if fire0 <= 0:
         return (name, False, f"fixture invalid: no fire painted (fire0={fire0})")
-    c.eval("return window.__FLUX.paintRect(140,168,180,175,'co2')")
+    _paint_rect(c, 140, 168, 180, 175, 'co2')  # CO2 blanket painted just above the flame
     c.eval("return window.__FLUX.step(0)")
     fire_peak = fire0
     for _ in range(14):
@@ -692,6 +816,9 @@ def main():
             # a test calls step(n). This removes the background-tick race globally, so
             # even tests that reset()/reseed() via direct c.eval are protected.
             _freeze(c)
+            # Read the live grid dims ONCE so every fixture can scale its coordinates to
+            # the current resolution (320x200 historically, 480x300 now, anything later).
+            _load_grid(c)
             for t in TESTS:
                 try:
                     results.append(t(c))

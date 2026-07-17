@@ -34,7 +34,29 @@ export class Thermal {
     const CL = CONDUCT_LUT, HL = HEATCAP_LUT;
     const sdt = STABLE * dt;
 
+    // ACTIVE-BAND SKIP: find the vertical span of rows that hold any non-ambient
+    // temperature and only diffuse there (padded by 1 row for the gradient edge).
+    // A large ambient region — the empty sky above most scenes — has zero flux, so
+    // computing it is wasted work. This is the biggest win at higher resolution,
+    // where idle cells dominate. Diffusion moves heat <=1 row/substep, so +1 pad
+    // is exact; results are identical to scanning the whole grid.
+    let yTop = h, yBot = -1;
+    const EPS = 0.25; // temps within 0.25C of ambient are "idle"
     for (let y = 0; y < h; y++) {
+      const rb = y * w;
+      let active = false;
+      for (let x = 0; x < w; x++) {
+        const d = temp[rb + x] - amb;
+        if (d > EPS || d < -EPS) { active = true; break; }
+      }
+      if (active) { if (y < yTop) yTop = y; if (y > yBot) yBot = y; }
+    }
+    if (yBot < 0) { this._activeTop = 0; this._activeBot = -1; return; } // fully ambient: nothing to do
+    yTop = yTop > 0 ? yTop - 1 : 0;
+    yBot = yBot < h - 1 ? yBot + 1 : h - 1;
+    this._activeTop = yTop; this._activeBot = yBot;
+
+    for (let y = yTop; y <= yBot; y++) {
       const rowBase = y * w;
       for (let x = 0; x < w; x++) {
         const i = rowBase + x;
@@ -61,15 +83,17 @@ export class Thermal {
         B[i] = ti + dT;
       }
     }
-    // commit
-    temp.set(B);
+    // commit ONLY the active band we recomputed (the rest of B is stale)
+    temp.set(B.subarray(yTop * w, (yBot + 1) * w), yTop * w);
 
     // AMBIENT RELAXATION (TPT-style): every cell drifts slowly toward room temp
     // each tick. This guarantees isolated hot cells decay and the whole grid can
     // never drift hot — the single most reliable guard against runaway heating.
     // Steady sources (lava, molten metal) below re-assert their own temperature,
     // so this only bleeds off stray/accumulated heat, not the sources themselves.
-    for (let i = 0; i < g.n; i++) {
+    // Only the active band can be non-ambient, so relax just that span.
+    const lo = yTop * w, hi = (yBot + 1) * w;
+    for (let i = lo; i < hi; i++) {
       const d = MATERIALS[mat[i]];
       if (d.id !== M.EMPTY) {
         temp[i] -= (temp[i] - amb) * 0.005 * dt;

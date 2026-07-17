@@ -68,7 +68,7 @@ const GLOW_HOT = [254, 174, 52];  // feae34  orange — fire / hot / molten
 const GLOW_COLD = [44, 232, 245]; // 2ce8f5  cyan   — cryo glow (unused by current mats but supported)
 
 // Display (fat-pixel) buffer resolution: half the sim in each axis => 2x2 blocks.
-const DISP_DIV = 2;
+const DISP_DIV = 1;
 
 export class Renderer {
   constructor(canvas, grid) {

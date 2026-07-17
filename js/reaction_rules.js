@@ -132,6 +132,11 @@ export const REACTION_RULES = [
   { a: 'sand', b: 'water', chance: 0.012, a_into: 'concrete_wet', b_into: 'empty',
     desc: 'sand mixed into water slowly yields concrete slurry' },
   // Mold: living blight creeps over organics in a living temp band; dies to fire/frost.
+  // mold DIES to fire/heat (it is wet biomass, not fuel — it sterilizes to ash
+  // rather than burning). These must precede the growth rules so heat wins.
+  { a: 'mold', b: 'fire', chance: 1, a_into: 'ash', b_into: 'keep', desc: 'fire sterilizes mold to ash' },
+  { a: 'mold', b: 'ember', chance: 0.6, a_into: 'ash', b_into: 'keep', desc: 'embers kill mold' },
+  { a: 'mold', b: 'lava', chance: 1, a_into: 'ash', b_into: 'keep', desc: 'lava sterilizes mold' },
   { a: 'mold', b: 'wood', chance: 0.03, tempMin: 2, tempMax: 45, a_into: 'keep', b_into: 'mold',
     desc: 'mold colonizes wood' },
   { a: 'mold', b: 'plant', chance: 0.05, tempMin: 2, tempMax: 45, a_into: 'keep', b_into: 'mold',
