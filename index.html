@@ -74,6 +74,12 @@
       <button id="shapeBtn" class="pill" title="Toggle brush shape (B)">Circle (B)</button>
     </div>
 
+    <!-- Help: re-opens the welcome / onboarding card at any time. Does NOT clear
+         the 'fluxsand_onboarded' localStorage flag — it just re-shows the card. -->
+    <div class="topbar-group help-group">
+      <button id="helpBtn" class="pill help-pill" title="How to play (?)" aria-label="How to play">?</button>
+    </div>
+
     <div class="topbar-group gallery-group">
       <span class="grp-label">Scenes</span>
       <div id="gallery" class="gallery"></div>
@@ -98,6 +104,26 @@
       <button id="si-close" class="si-close" title="Dismiss" aria-label="Dismiss">&times;</button>
       <div id="si-title" class="si-title"></div>
       <div id="si-body" class="si-body"></div>
+    </div>
+    <!-- First-run onboarding card. Reuses the scenario-instruction card's theme
+         (a translucent, blurred, accent-bordered panel) but is centered over the
+         canvas on a dim backdrop. Shown once on first load (gated by the
+         'fluxsand_onboarded' localStorage key) and re-openable via the "?" button.
+         Presentation-only: never touches sim state. Dismiss with "Got it!" or by
+         clicking the backdrop. -->
+    <div id="onboarding" class="onboarding-backdrop" hidden>
+      <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="ob-title">
+        <button id="ob-close" class="si-close" title="Dismiss" aria-label="Dismiss">&times;</button>
+        <div id="ob-title" class="ob-title">Welcome to Fluxsand</div>
+        <div class="ob-body">
+          <span class="ob-line">🖱️ Draw materials with your mouse — pick them from the bottom bar.</span>
+          <span class="ob-line">💧 Drop water on sand. Pour lava. Light gasoline with a spark.</span>
+          <span class="ob-line">🔥 Press <b>F</b> for the thermal (heat) view, <b>G</b> for ASCII.</span>
+          <span class="ob-line">🌡️ Use the <b>Heat/Cool</b> tools, or drop a <b>TNT</b> charge and light a fuse.</span>
+          <span class="ob-line">🎬 Try a <b>Scene</b> from the top bar to watch it all come alive.</span>
+        </div>
+        <button id="ob-got-it" class="ob-btn">Got it!</button>
+      </div>
     </div>
     <!-- Thermal overlay legend: a vertical color bar + live min/mid/max degC
          labels. Hidden by default; shown only while the thermal overlay is

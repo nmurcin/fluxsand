@@ -165,6 +165,45 @@ export function initUI(ctx) {
   if (siClose) siClose.addEventListener('click', (e) => { e.stopPropagation(); hideInstructions(); });
   if (siEl) siEl.addEventListener('click', () => hideInstructions());
 
+  // --- first-run onboarding card ---
+  // A one-time welcome overlay that teaches the core loop. Gated by the
+  // 'fluxsand_onboarded' localStorage key: shown automatically only on the first
+  // visit, then re-openable at will via the "?" help button (which does NOT clear
+  // the flag). Presentation-only — it never touches sim state. Dismiss with the
+  // "Got it!" button, the ×, or a click on the dim backdrop; the card body itself
+  // swallows clicks so a stray click inside it doesn't close the card.
+  const ONBOARD_KEY = 'fluxsand_onboarded';
+  const obEl = document.getElementById('onboarding');
+  const obCard = obEl ? obEl.querySelector('.onboarding-card') : null;
+  const obGotIt = document.getElementById('ob-got-it');
+  const obClose = document.getElementById('ob-close');
+  const helpBtn = document.getElementById('helpBtn');
+
+  function showOnboarding() { if (obEl) obEl.hidden = false; }
+  // Hide the card and (optionally) persist the onboarded flag. The auto-shown
+  // first-run path and every dismiss action set the flag so it won't reappear on
+  // reload; re-opening via "?" leaves the flag untouched either way.
+  function dismissOnboarding() {
+    if (obEl) obEl.hidden = true;
+    try { localStorage.setItem(ONBOARD_KEY, '1'); } catch (e) { /* storage may be blocked */ }
+  }
+
+  if (obGotIt) obGotIt.addEventListener('click', (e) => { e.stopPropagation(); dismissOnboarding(); });
+  if (obClose) obClose.addEventListener('click', (e) => { e.stopPropagation(); dismissOnboarding(); });
+  // Click on the dim backdrop (outside the card) dismisses; clicks on the card
+  // itself do not (stopPropagation on the card).
+  if (obEl) obEl.addEventListener('click', () => dismissOnboarding());
+  if (obCard) obCard.addEventListener('click', (e) => e.stopPropagation());
+  // "?" re-opens the same card at any time WITHOUT clearing the flag.
+  if (helpBtn) helpBtn.addEventListener('click', () => showOnboarding());
+
+  // First-run auto-show: only when the flag is not already set.
+  {
+    let seen = false;
+    try { seen = localStorage.getItem(ONBOARD_KEY) === '1'; } catch (e) { seen = false; }
+    if (!seen) showOnboarding();
+  }
+
   // --- gallery strip ---
   const gallery = document.getElementById('gallery');
   if (gallery) {
