@@ -274,13 +274,12 @@ export function initUI(ctx) {
   });
   window.addEventListener('mouseup', () => { painting = false; });
   canvas.addEventListener('mousemove', (e) => {
+    if (!painting) return;
     const { x, y } = toGrid(e);
-    if (painting) strokeTo(x, y);
-    updateInspect(e, x, y); // hover-inspect tracks the cursor whether or not we're painting
+    strokeTo(x, y);
   });
   // Right-click on the canvas erases instead of opening the context menu.
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('mouseleave', () => hideInspect());
   // touch (single-finger paint with line interpolation; touch has no eraser button)
   canvas.addEventListener('touchstart', (e) => {
     painting = 'paint'; const t = e.touches[0]; const { x, y } = toGrid(t);
@@ -290,44 +289,6 @@ export function initUI(ctx) {
     if (painting) { const t = e.touches[0]; const { x, y } = toGrid(t); strokeTo(x, y); e.preventDefault(); }
   }, { passive: false });
   window.addEventListener('touchend', () => { painting = false; });
-
-  // --- hover-inspect tooltip ---
-  // On mousemove (painting or not), show a small tooltip near the cursor reading
-  // the cell under it as "material  tempC  phase" (e.g. "lava  1142C  liquid").
-  // Reads live via FLUX.cellAt; pure DOM, never touches sim state. rAF-throttled
-  // so it updates at most once per frame no matter how fast the pointer moves.
-  const tipEl = document.getElementById('inspect-tip');
-  let tipPending = null; // {clientX, clientY, gx, gy} queued for the next frame
-  let tipRaf = 0;
-
-  function hideInspect() {
-    tipPending = null;
-    if (tipEl) tipEl.hidden = true;
-  }
-  function updateInspect(ev, gx, gy) {
-    if (!tipEl) return;
-    tipPending = { clientX: ev.clientX, clientY: ev.clientY, gx, gy };
-    if (!tipRaf) tipRaf = requestAnimationFrame(flushInspect);
-  }
-  function flushInspect() {
-    tipRaf = 0;
-    const p = tipPending;
-    if (!p) return;
-    if (!grid.inBounds(p.gx, p.gy)) { hideInspect(); return; }
-    const cell = FLUX.cellAt(p.gx, p.gy);
-    if (!cell) { hideInspect(); return; }
-    const mat = String(cell.material).replace(/_/g, ' ');
-    tipEl.textContent = `${mat}  ${cell.tempC}C  ${cell.phase}`;
-    // Offset a little from the cursor; keep it on-screen near the right/bottom edges.
-    const off = 14;
-    let left = p.clientX + off, top = p.clientY + off;
-    const w = tipEl.offsetWidth || 80, h = tipEl.offsetHeight || 20;
-    if (left + w > window.innerWidth) left = p.clientX - off - w;
-    if (top + h > window.innerHeight) top = p.clientY - off - h;
-    tipEl.style.left = left + 'px';
-    tipEl.style.top = top + 'px';
-    tipEl.hidden = false;
-  }
 
   // --- keyboard shortcuts ---
   window.addEventListener('keydown', (e) => {

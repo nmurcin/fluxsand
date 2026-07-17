@@ -91,11 +91,6 @@
     <canvas id="c" width="1280" height="800"></canvas>
     <div id="hud" class="hud"></div>
     <div id="overlay-badge" class="overlay-badge"></div>
-    <!-- Hover-inspect tooltip: follows the cursor over the canvas and shows the
-         cell under it as "material  tempC  phase" (e.g. "lava  1142C  liquid").
-         Pure DOM, positioned by tools.js; hidden whenever the cursor leaves the
-         canvas. Never touches sim state. -->
-    <div id="inspect-tip" class="inspect-tip" hidden></div>
     <!-- Per-scenario instruction card. Hidden by default; tools.js shows it
          (with the scenario's title + step list) whenever a scenario that has a
          description becomes active (tracked via __STATE__.lastScenario), and
