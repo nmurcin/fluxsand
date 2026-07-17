@@ -12,6 +12,7 @@ import { MATERIALS, M, PHASE, BY_NAME, PALETTE, matName, phaseName } from './mat
 import { SCENARIOS, loadScenario } from './scenarios.js';
 import { initUI } from './tools.js';
 import { encodeScene, decodeScene, applyScene } from './share.js';
+import { AudioEngine } from './audio.js';
 
 export const GRID_W = 400;
 export const GRID_H = 250;
@@ -23,6 +24,12 @@ const rng = new Rng(DEFAULT_SEED);
 const grid = new Grid(GRID_W, GRID_H);
 const sim = new Sim(grid, rng);
 const renderer = new Renderer(canvas, grid);
+
+// DISPLAY-ONLY procedural audio. See js/audio.js for the determinism firewall.
+// The engine only READS window.__STATE__ and is only ticked while the live rAF
+// loop is running (never while rafFrozen), so it cannot affect stateHash().
+const audioEngine = new AudioEngine();
+let muted = false;
 
 let paused = false;
 let overlay = 'normal';
@@ -205,6 +212,12 @@ function frame(now) {
     renderer.setMode(overlay);
     renderer.draw();
     publishState();
+    // DISPLAY-ONLY audio. This is the firewall's live-side guard: audio is
+    // ticked ONLY inside the !rafFrozen branch of frame(), and only when not
+    // muted. The headless harness freezes rAF (rafFrozen=true) and drives
+    // step(n) directly, so frame() never runs and audioEngine.tick() is never
+    // called during the determinism tests. tick() READS __STATE__ only.
+    if (!muted) audioEngine.tick(window.__STATE__);
     requestAnimationFrame(frame);
   }
 }
@@ -260,6 +273,19 @@ const FLUX = {
   // export the current canvas as a PNG data URL (renders happen on the canvas
   // element, so this is a straight toDataURL). Pure read of pixels — no sim state.
   exportPNG() { return canvas.toDataURL('image/png'); },
+
+  // ---- DISPLAY-ONLY audio control (no sim state) --------------------------
+  // audioState(): numbers/booleans-only snapshot of the audio mapping layer, so
+  // the headless harness (no speakers, suspended context) can assert the
+  // event->sound MAPPING without needing to hear anything. See js/audio.js.
+  audioState() { return audioEngine.audioState(); },
+  // unlockAudio(): create+resume the AudioContext. MUST be invoked from a user
+  // gesture (browser autoplay policy) — tools.js calls it on first click/keydown.
+  unlockAudio() { audioEngine.unlock(); return audioEngine.audioState(); },
+  // setMuted(bool): toggle audio output. Default UNMUTED. Rides the master gain,
+  // touches no sim state. Returns the new muted flag.
+  setMuted(m) { muted = !!m; audioEngine.setMuted(muted); publishState(); return muted; },
+  isMuted() { return muted; },
   // deterministic stepping: freeze rAF, advance exactly n ticks, redraw once
   step(n = 1) {
     rafFrozen = true;
@@ -343,7 +369,12 @@ function boot() {
   }
   initUI({
     canvas, grid, FLUX,
-    getState: () => ({ selectedMaterial, brushSize, brushShape, paused, overlay, fps, tick: sim.tick }),
+    // The audio engine is passed so tools.js can unlock() it on the first user
+    // gesture (browser autoplay policy) and drive the Mute toggle. tools.js only
+    // ever calls unlock()/setMuted — it never reaches into sim state through it.
+    audioEngine,
+    getState: () => ({ selectedMaterial, brushSize, brushShape, paused, overlay, fps, tick: sim.tick, muted }),
+    setMuted: (m) => FLUX.setMuted(m),
     setSelected: (m) => { selectedMaterial = m; },
     setBrush: (b) => { brushSize = b; },
     setBrushShape: (s) => { if (s === 'circle' || s === 'square') brushShape = s; },

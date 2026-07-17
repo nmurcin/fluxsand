@@ -59,6 +59,14 @@
       <button id="exportBtn" class="pill">Export PNG</button>
     </div>
 
+    <!-- Audio: procedural WebAudio "juice" (booms, sizzles, fire crackle, a
+         subtle hum). Default UNMUTED, but audio only actually plays after the
+         first click/keydown (browser autoplay policy) unlocks the context. -->
+    <div class="topbar-group">
+      <span class="grp-label">Audio</span>
+      <button id="muteBtn" class="pill" title="Toggle sound (M)">Mute (M)</button>
+    </div>
+
     <div class="topbar-group brush-group">
       <span class="grp-label">Brush</span>
       <input id="brush" type="range" min="0" max="20" value="6" />

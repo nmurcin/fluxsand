@@ -20,7 +20,7 @@ function infernoGradientCss() {
 }
 
 export function initUI(ctx) {
-  const { canvas, grid, FLUX, getState, setSelected, setBrush, setBrushShape, togglePause, step, reset } = ctx;
+  const { canvas, grid, FLUX, audioEngine, getState, setSelected, setBrush, setBrushShape, setMuted, togglePause, step, reset } = ctx;
   // setOverlay is wrapped below (after the legend elements exist) so that every
   // overlay change — keyboard F/G, buttons, or programmatic — also toggles and
   // refreshes the thermal legend. Declared with `let` so it can be rebound.
@@ -303,6 +303,7 @@ export function initUI(ctx) {
     else if (k === '[') { const b = Math.max(0, getState().brushSize - 2); setBrush(b); FLUX.setBrush(b); }
     else if (k === ']') { const b = getState().brushSize + 2; setBrush(b); FLUX.setBrush(b); }
     else if (k === 'b' || k === 'B') { toggleShape(); }
+    else if (k === 'm' || k === 'M') { toggleMute(); }
   });
 
   // --- brush shape toggle (circle <-> square) ---
@@ -327,6 +328,37 @@ export function initUI(ctx) {
   // --- brush slider ---
   const slider = document.getElementById('brush');
   if (slider) slider.addEventListener('input', () => { const b = +slider.value; setBrush(b); FLUX.setBrush(b); });
+
+  // --- audio: gesture-unlock + Mute toggle ---
+  // Browser autoplay policy: an AudioContext created before a user gesture starts
+  // SUSPENDED and stays silent. We must call audioEngine.unlock() (which resumes
+  // the context) from inside a real gesture. Attach once-style so the first click
+  // OR keydown anywhere unlocks; a later gesture calling unlock() again is a safe
+  // no-op. This only calls unlock() — it never touches sim state.
+  const unlockAudio = () => { if (audioEngine) audioEngine.unlock(); refreshMuteBtn(); };
+  window.addEventListener('mousedown', unlockAudio, { once: true });
+  window.addEventListener('keydown', unlockAudio, { once: true });
+  window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+
+  // Mute button + 'M' shortcut. Default UNMUTED. Routes through FLUX.setMuted so
+  // a bot drives it identically; the button label reflects the live state.
+  const muteBtn = document.getElementById('muteBtn');
+  function refreshMuteBtn() {
+    if (!muteBtn) return;
+    const m = getState().muted;
+    muteBtn.textContent = (m ? 'Unmute' : 'Mute') + ' (M)';
+    muteBtn.classList.toggle('active', m);
+  }
+  function toggleMute() {
+    const next = !getState().muted;
+    if (setMuted) setMuted(next);
+    // First interaction with the Mute button is also a gesture — make sure the
+    // context is unlocked so unmuting actually produces sound.
+    if (audioEngine) audioEngine.unlock();
+    refreshMuteBtn();
+  }
+  if (muteBtn) muteBtn.addEventListener('click', () => toggleMute());
+  refreshMuteBtn();
 
   // --- thermal legend ---
   // The legend is a DOM color bar bottom-left of the stage. It's shown only in
