@@ -13,6 +13,7 @@ import { SCENARIOS, loadScenario } from './scenarios.js';
 import { initUI } from './tools.js';
 import { encodeScene, decodeScene, applyScene } from './share.js';
 import { AudioEngine } from './audio.js';
+import { Particles } from './particles.js';
 
 export const GRID_W = 400;
 export const GRID_H = 250;
@@ -30,6 +31,15 @@ const renderer = new Renderer(canvas, grid);
 // loop is running (never while rafFrozen), so it cannot affect stateHash().
 const audioEngine = new AudioEngine();
 let muted = false;
+
+// DISPLAY-ONLY particle + screen-shake layer. Same determinism firewall as the
+// audio engine: it only READS window.__STATE__ + is only ticked/drawn on the
+// live rAF frame (never while rafFrozen), so it cannot touch stateHash() or the
+// visual baselines. `scale` = canvas px per grid cell (both axes are integer
+// multiples). renderer.draw(live) applies its shake + particle draw only when
+// live === !rafFrozen. See js/particles.js.
+const particles = new Particles(512, canvas.width / grid.w);
+renderer.particles = particles;
 
 let paused = false;
 let overlay = 'normal';
@@ -192,8 +202,9 @@ let simSpeed = 1;      // 0.5 | 1 | 2 | 4
 let _slowFrames = 0;   // counts frames while slow-mo waits to take a step
 function frame(now) {
   if (!rafFrozen) {
+    let dt = 16;
     if (_lastT) {
-      const dt = now - _lastT;
+      dt = now - _lastT;
       _fpsAccum += dt; _fpsCount++;
       if (_fpsAccum >= 250) { fps = 1000 / (_fpsAccum / _fpsCount); _fpsAccum = 0; _fpsCount = 0; }
     }
@@ -210,13 +221,18 @@ function frame(now) {
       }
     }
     renderer.setMode(overlay);
-    renderer.draw();
     publishState();
-    // DISPLAY-ONLY audio. This is the firewall's live-side guard: audio is
-    // ticked ONLY inside the !rafFrozen branch of frame(), and only when not
-    // muted. The headless harness freezes rAF (rafFrozen=true) and drives
-    // step(n) directly, so frame() never runs and audioEngine.tick() is never
-    // called during the determinism tests. tick() READS __STATE__ only.
+    // DISPLAY-ONLY particles + screen shake. This is the firewall's live-side
+    // guard: particles are spawned/integrated ONLY inside this !rafFrozen branch
+    // of frame(), reading the __STATE__ we just published (blasts, changes,
+    // hottestCell, totals). They never write sim state or call the seeded rng.
+    // The headless harness + visual.py freeze rAF (rafFrozen=true) and drive
+    // step(n) directly, so frame() never runs and update() is never called under
+    // the frozen path — and draw(true) below is the ONLY path that applies the
+    // shake offset + draws particles, so baselines cannot drift.
+    particles.update(window.__STATE__, dt);
+    renderer.draw(true); // live: apply shake + draw particles on top
+    // DISPLAY-ONLY audio (same firewall). Ticked ONLY here, only when unmuted.
     if (!muted) audioEngine.tick(window.__STATE__);
     requestAnimationFrame(frame);
   }
@@ -279,6 +295,13 @@ const FLUX = {
   // the headless harness (no speakers, suspended context) can assert the
   // event->sound MAPPING without needing to hear anything. See js/audio.js.
   audioState() { return audioEngine.audioState(); },
+  // ---- DISPLAY-ONLY particle count (no sim state) -------------------------
+  // particleCount(): live particle count in the presentation layer. Lets the
+  // headless harness assert spawn-on-blast during LIVE play() without pixel
+  // flakiness. Reads a cached counter — touches no sim state. Always 0 under the
+  // frozen path (frame() never runs to spawn/integrate), which is exactly what
+  // proves particles don't leak into the deterministic tests.
+  particleCount() { return particles.count(); },
   // unlockAudio(): create+resume the AudioContext. MUST be invoked from a user
   // gesture (browser autoplay policy) — tools.js calls it on first click/keydown.
   unlockAudio() { audioEngine.unlock(); return audioEngine.audioState(); },

@@ -118,6 +118,13 @@ export class Renderer {
     // ascii glyph ramp by "intensity"
     this.asciiRamp = ' .:-=+*#%@';
 
+    // DISPLAY-ONLY presentation layer (particles + screen shake). It is only
+    // ever exercised on LIVE frames (draw(true)); when the render loop is frozen
+    // for the headless/visual harness the sim is blitted exactly as before, with
+    // zero shake offset and zero particles, so baselines never drift. See
+    // js/particles.js for the full firewall note. Assigned by main.js.
+    this.particles = null;
+
     // Live thermal range (deg C) computed each thermal frame from the actual
     // scene. Published so the on-screen legend can label min/mid/max. Seeded
     // with the ambient so a cold/empty scene still shows a sane bar.
@@ -216,8 +223,21 @@ export class Renderer {
     return y0 * w + x0; // top-left (empty)
   }
 
-  draw() {
-    if (this.mode === 'ascii') return this.drawAscii();
+  // draw(live): render the sim. `live` is TRUE only on the wall-clock rAF frame
+  // (main.js passes !rafFrozen). When live, the presentation layer applies a
+  // decaying screen-shake offset to the sim blit and draws particles on top;
+  // when NOT live (the frozen path the harness + visual.py drive) it renders the
+  // scene byte-for-byte as before — no offset, no particles — so visual
+  // baselines and stateHash stay put. Defaults to false so any legacy/frozen
+  // caller is inherently safe.
+  draw(live = false) {
+    // Presentation layer runs ONLY on live frames. Compute the shake offset up
+    // front so both the ascii and chunky paths can ride it.
+    let ox = 0, oy = 0;
+    const P = (live && this.particles) ? this.particles : null;
+    if (P) { const o = P.shakeOffset(); ox = o.x; oy = o.y; }
+
+    if (this.mode === 'ascii') return this.drawAscii(ox, oy, P);
     const g = this.g;
     const data = this.img.data;
     const mat = g.mat, temp = g.temp;
@@ -285,7 +305,20 @@ export class Renderer {
     // Upscale the chunky buffer to the visible canvas (clean integer fat pixels).
     const cw = this.canvas.width, ch = this.canvas.height;
     this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(this.buf, 0, 0, dw, dh, 0, 0, cw, ch);
+    if (ox !== 0 || oy !== 0) {
+      // Screen shake: nudge the whole sim blit by the decaying offset. Paint the
+      // exposed edge with the EDG32 near-black background first so the shift
+      // never reveals stale pixels. LIVE-ONLY (ox/oy are 0 on the frozen path).
+      this.ctx.fillStyle = '#181425';
+      this.ctx.fillRect(0, 0, cw, ch);
+      this.ctx.drawImage(this.buf, 0, 0, dw, dh, ox, oy, cw, ch);
+    } else {
+      this.ctx.drawImage(this.buf, 0, 0, dw, dh, 0, 0, cw, ch);
+    }
+
+    // Particles ride ON TOP of the (shaken) scene. LIVE-ONLY: P is null unless
+    // draw() was called with live=true, so this is a no-op on the frozen path.
+    if (P) P.draw(this.ctx, ox, oy);
   }
 
   _chunkyGlow(data) {
@@ -319,7 +352,10 @@ export class Renderer {
     }
   }
 
-  drawAscii() {
+  // drawAscii(ox, oy, P): ascii overlay. ox/oy is the live shake offset (0 on the
+  // frozen path); P is the live particle system or null. Both are no-ops when
+  // called from the frozen render path, keeping the visual baseline stable.
+  drawAscii(ox = 0, oy = 0, P = null) {
     const g = this.g;
     const ctx = this.ctx;
     const cw = this.canvas.width, ch = this.canvas.height;
@@ -343,8 +379,9 @@ export class Renderer {
         const inc = incandescent(temp[i]);
         const c = inc || d.color;
         ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
-        ctx.fillText(ch2, x * (cw / g.w), y * (ch / g.h));
+        ctx.fillText(ch2, x * (cw / g.w) + ox, y * (ch / g.h) + oy);
       }
     }
+    if (P) P.draw(ctx, ox, oy);
   }
 }
