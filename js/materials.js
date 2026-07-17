@@ -301,6 +301,20 @@ export const MATERIALS = [
 export const BY_NAME = {};
 for (const m of MATERIALS) BY_NAME[m.name] = m.id;
 
+// Flat property LUTs indexed by material id. Hot loops (thermal diffusion,
+// movement) read these typed arrays instead of dereferencing MATERIALS[id].prop
+// per neighbor per cell — a large speedup in JS that lets us afford a finer grid.
+export const CONDUCT_LUT = new Float32Array(MATERIALS.length);
+export const HEATCAP_LUT = new Float32Array(MATERIALS.length);
+export const PHASE_LUT = new Uint8Array(MATERIALS.length);
+export const DENSITY_LUT = new Float32Array(MATERIALS.length);
+for (const m of MATERIALS) {
+  CONDUCT_LUT[m.id] = m.conduct;
+  HEATCAP_LUT[m.id] = m.heatCap;
+  PHASE_LUT[m.id] = m.phase;
+  DENSITY_LUT[m.id] = m.density;
+}
+
 // Palette shown in the dock (order matters for UI + number keys 1..9,0).
 // First 10 map to keys 1-9,0; the rest are click-only in the dock.
 export const PALETTE = [

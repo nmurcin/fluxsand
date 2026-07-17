@@ -11,7 +11,7 @@
 // This is what makes a fire front visibly stall at water (water's latentBoil is
 // huge, calibrated to real ~2.256 MJ/kg from CoolProp).
 
-import { MATERIALS, M, PHASE } from './materials.js';
+import { MATERIALS, M, PHASE, CONDUCT_LUT, HEATCAP_LUT } from './materials.js';
 
 const STABLE = 0.22; // < 0.25 for 2D explicit stability, with margin
 
@@ -28,42 +28,33 @@ export class Thermal {
     const B = this.tempB;
     const amb = g.ambient;
 
+    // Read material conductivity/heatCap from flat typed-array LUTs (indexed by id)
+    // rather than dereferencing MATERIALS[id].prop per neighbor per cell — the hot
+    // loop runs w*h*4 conductivity reads per substep, so this is a large speedup.
+    const CL = CONDUCT_LUT, HL = HEATCAP_LUT;
+    const sdt = STABLE * dt;
+
     for (let y = 0; y < h; y++) {
+      const rowBase = y * w;
       for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        const ci = MATERIALS[mat[i]].conduct;
-        const cap = MATERIALS[mat[i]].heatCap;
+        const i = rowBase + x;
+        const ci = CL[mat[i]];
         const ti = temp[i];
         let flux = 0;
 
         // 4-neighborhood; out-of-bounds acts as ambient sink (walls lose heat slowly)
-        // left
-        if (x > 0) {
-          const j = i - 1;
-          const k = 0.5 * (ci + MATERIALS[mat[j]].conduct);
-          flux += k * (temp[j] - ti);
-        } else flux += 0.02 * (amb - ti);
-        // right
-        if (x < w - 1) {
-          const j = i + 1;
-          const k = 0.5 * (ci + MATERIALS[mat[j]].conduct);
-          flux += k * (temp[j] - ti);
-        } else flux += 0.02 * (amb - ti);
-        // up
-        if (y > 0) {
-          const j = i - w;
-          const k = 0.5 * (ci + MATERIALS[mat[j]].conduct);
-          flux += k * (temp[j] - ti);
-        } else flux += 0.02 * (amb - ti);
-        // down
-        if (y < h - 1) {
-          const j = i + w;
-          const k = 0.5 * (ci + MATERIALS[mat[j]].conduct);
-          flux += k * (temp[j] - ti);
-        } else flux += 0.02 * (amb - ti);
+        if (x > 0) { const j = i - 1; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
+        else flux += 0.02 * (amb - ti);
+        if (x < w - 1) { const j = i + 1; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
+        else flux += 0.02 * (amb - ti);
+        if (y > 0) { const j = i - w; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
+        else flux += 0.02 * (amb - ti);
+        if (y < h - 1) { const j = i + w; flux += 0.5 * (ci + CL[mat[j]]) * (temp[j] - ti); }
+        else flux += 0.02 * (amb - ti);
 
         // energy change -> temperature change, scaled by heat capacity
-        let dT = (STABLE * dt * flux) / Math.max(0.2, cap);
+        const cap = HL[mat[i]];
+        let dT = (sdt * flux) / (cap > 0.2 ? cap : 0.2);
         // clamp per-step delta to avoid oscillation on huge gradients
         if (dT > 40) dT = 40;
         else if (dT < -40) dT = -40;
