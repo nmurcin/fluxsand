@@ -28,6 +28,7 @@ let paused = false;
 let overlay = 'normal';
 let selectedMaterial = 'sand';
 let brushSize = 6;
+let brushShape = 'circle'; // 'circle' (default, hash-preserving) | 'square'
 let lastScenario = '';
 let fps = 0;
 let _fpsAccum = 0, _fpsCount = 0, _lastT = 0;
@@ -83,6 +84,7 @@ function publishState() {
     grid: { w: grid.w, h: grid.h },
     selectedMaterial,
     brushSize,
+    brushShape,
     paused,
     overlay,
     totals: {
@@ -104,20 +106,49 @@ function publishState() {
 }
 
 // ---- painting (grid coords) ------------------------------------------------
+// Place a material at one cell. Painting EMPTY (the eraser) is a true erase:
+// it also resets the cell's thermal history — temp back to ambient, latent 0,
+// life -1 — so an erased cell leaves NO ghost heat behind for the solver to
+// pick up. Every other material routes through grid.set (which seeds temp/life
+// from the material definition). This is deterministic; paint touches no rng.
+function placeCell(i, id) {
+  if (id === M.EMPTY) {
+    grid.mat[i] = M.EMPTY;
+    grid.temp[i] = grid.ambient;
+    grid.latent[i] = 0;
+    grid.life[i] = -1;
+  } else {
+    grid.setIdx(i, id);
+  }
+}
 function paint(cx, cy, r = brushSize, id = BY_NAME[selectedMaterial]) {
   const rr = r * r;
+  const square = brushShape === 'square';
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
-      if (dx * dx + dy * dy > rr) continue;
+      // circle: keep the radius test; square: fill the whole (2r+1)^2 box.
+      if (!square && dx * dx + dy * dy > rr) continue;
       const x = cx + dx, y = cy + dy;
-      if (grid.inBounds(x, y)) grid.set(x, y, id);
+      if (grid.inBounds(x, y)) placeCell(grid.idx(x, y), id);
     }
   }
 }
 function paintRect(x0, y0, x1, y1, id) {
   for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
     for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
-      if (grid.inBounds(x, y)) grid.set(x, y, id);
+      if (grid.inBounds(x, y)) placeCell(grid.idx(x, y), id);
+}
+// Stamp the circular/square brush along a line from (x0,y0) to (x1,y1),
+// stepping one cell at a time so a fast drag leaves a continuous stroke with
+// no dotted gaps. Integer DDA (lerp) — deterministic, no rng.
+function paintLine(x0, y0, x1, y1, r = brushSize, id = BY_NAME[selectedMaterial]) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  if (steps === 0) { paint(x0, y0, r, id); return; }
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps;
+    paint(Math.round(x0 + dx * t), Math.round(y0 + dy * t), r, id);
+  }
 }
 
 // ---- main loop (fixed-dt; rAF can be frozen for deterministic stepping) ----
@@ -153,9 +184,21 @@ const FLUX = {
     publishState(); return selectedMaterial;
   },
   setBrush(px) { brushSize = Math.max(0, px | 0); publishState(); return brushSize; },
+  // brush neighborhood shape: 'circle' (default) or 'square'. Default stays
+  // circle so existing hashes/baselines are unaffected until a caller changes it.
+  setBrushShape(s) { if (s === 'circle' || s === 'square') brushShape = s; publishState(); return brushShape; },
   paint(x, y, r) { paint(x | 0, y | 0, r === undefined ? brushSize : r | 0); },
   paintRect(x0, y0, x1, y1, id) {
     paintRect(x0 | 0, y0 | 0, x1 | 0, y1 | 0, typeof id === 'string' ? BY_NAME[id] : (id | 0));
+  },
+  // line-interpolated painting: stamp the brush along the whole segment so a
+  // fast pointer drag leaves a gapless stroke. id optional (defaults to selected).
+  paintLine(x0, y0, x1, y1, r, id) {
+    paintLine(
+      x0 | 0, y0 | 0, x1 | 0, y1 | 0,
+      r === undefined ? brushSize : r | 0,
+      id === undefined ? BY_NAME[selectedMaterial]
+        : (typeof id === 'string' ? BY_NAME[id] : (id | 0)));
   },
   // deterministic stepping: freeze rAF, advance exactly n ticks, redraw once
   step(n = 1) {
@@ -240,9 +283,10 @@ function boot() {
   }
   initUI({
     canvas, grid, FLUX,
-    getState: () => ({ selectedMaterial, brushSize, paused, overlay, fps, tick: sim.tick }),
+    getState: () => ({ selectedMaterial, brushSize, brushShape, paused, overlay, fps, tick: sim.tick }),
     setSelected: (m) => { selectedMaterial = m; },
     setBrush: (b) => { brushSize = b; },
+    setBrushShape: (s) => { if (s === 'circle' || s === 'square') brushShape = s; },
     setOverlay: (o) => FLUX.setOverlay(o),
     togglePause: () => { paused = !paused; },
     step: () => FLUX.step(1),

@@ -20,7 +20,7 @@ function infernoGradientCss() {
 }
 
 export function initUI(ctx) {
-  const { canvas, grid, FLUX, getState, setSelected, setBrush, togglePause, step, reset } = ctx;
+  const { canvas, grid, FLUX, getState, setSelected, setBrush, setBrushShape, togglePause, step, reset } = ctx;
   // setOverlay is wrapped below (after the legend elements exist) so that every
   // overlay change — keyboard F/G, buttons, or programmatic — also toggles and
   // refreshes the thermal legend. Declared with `let` so it can be rebound.
@@ -37,7 +37,14 @@ export function initUI(ctx) {
     { label: 'Cryo', mats: ['liquid_nitrogen', 'dry_ice', 'snow'] },
     { label: 'Chem', mats: ['mercury', 'acid', 'concrete'] },
     { label: 'Life', mats: ['plant', 'wax'] },
+    // Tools group: the Eraser paints EMPTY (which resets a cell's thermal
+    // history to ambient, see main.placeCell). 'empty' is a real material name
+    // so it flows through the same selectMat/FLUX.setMaterial path as any swatch.
+    { label: 'Tools', mats: ['empty'] },
   ];
+  // Human labels for special palette entries that shouldn't show their raw
+  // material name (EMPTY -> "Eraser").
+  const SWATCH_LABEL = { empty: 'Eraser' };
 
   // Key-badge label for a material: keys 1-9 then 0 map to the first 10 PALETTE
   // entries; everything past index 9 gets no badge.
@@ -56,7 +63,7 @@ export function initUI(ctx) {
     const [r, g, b] = def.color;
     el.style.setProperty('--sw', `rgb(${r},${g},${b})`);
     const badge = keyLabel(name);
-    const label = name.replace(/_/g, ' '); // "liquid_nitrogen" -> "liquid nitrogen"
+    const label = SWATCH_LABEL[name] || name.replace(/_/g, ' '); // "liquid_nitrogen" -> "liquid nitrogen"
     // Compact horizontal swatch: small color chip + short label side-by-side.
     // Full name lives in the tooltip so a truncated label is still discoverable.
     el.title = label + (badge ? `  (${badge})` : '');
@@ -175,20 +182,88 @@ export function initUI(ctx) {
   }
 
   // --- mouse painting ---
+  // painting: 'paint' (left button, selected material), 'erase' (right button,
+  // EMPTY), or false (idle). lastX/lastY hold the previous grid cell of the
+  // stroke so a fast drag is filled with FLUX.paintLine (no dotted gaps).
   let painting = false;
+  let lastX = 0, lastY = 0;
   function toGrid(ev) {
     const rect = canvas.getBoundingClientRect();
     const x = ((ev.clientX - rect.left) / rect.width) * grid.w;
     const y = ((ev.clientY - rect.top) / rect.height) * grid.h;
     return { x: Math.floor(x), y: Math.floor(y) };
   }
-  canvas.addEventListener('mousedown', (e) => { painting = true; const { x, y } = toGrid(e); FLUX.paint(x, y); });
+  // Stamp from the last stroke cell to the current one. 'erase' paints EMPTY
+  // (id 0) regardless of the selected material; 'paint' uses the selection.
+  function strokeTo(x, y) {
+    const id = painting === 'erase' ? 0 : undefined; // undefined -> selected material
+    FLUX.paintLine(lastX, lastY, x, y, undefined, id);
+    lastX = x; lastY = y;
+  }
+  canvas.addEventListener('mousedown', (e) => {
+    const { x, y } = toGrid(e);
+    // button 2 = right = erase; anything else = paint the selected material.
+    painting = (e.button === 2) ? 'erase' : 'paint';
+    lastX = x; lastY = y;
+    strokeTo(x, y);
+    e.preventDefault();
+  });
   window.addEventListener('mouseup', () => { painting = false; });
-  canvas.addEventListener('mousemove', (e) => { if (painting) { const { x, y } = toGrid(e); FLUX.paint(x, y); } });
-  // touch
-  canvas.addEventListener('touchstart', (e) => { painting = true; const t = e.touches[0]; const { x, y } = toGrid(t); FLUX.paint(x, y); e.preventDefault(); }, { passive: false });
-  canvas.addEventListener('touchmove', (e) => { if (painting) { const t = e.touches[0]; const { x, y } = toGrid(t); FLUX.paint(x, y); e.preventDefault(); } }, { passive: false });
+  canvas.addEventListener('mousemove', (e) => {
+    const { x, y } = toGrid(e);
+    if (painting) strokeTo(x, y);
+    updateInspect(e, x, y); // hover-inspect tracks the cursor whether or not we're painting
+  });
+  // Right-click on the canvas erases instead of opening the context menu.
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('mouseleave', () => hideInspect());
+  // touch (single-finger paint with line interpolation; touch has no eraser button)
+  canvas.addEventListener('touchstart', (e) => {
+    painting = 'paint'; const t = e.touches[0]; const { x, y } = toGrid(t);
+    lastX = x; lastY = y; strokeTo(x, y); e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (painting) { const t = e.touches[0]; const { x, y } = toGrid(t); strokeTo(x, y); e.preventDefault(); }
+  }, { passive: false });
   window.addEventListener('touchend', () => { painting = false; });
+
+  // --- hover-inspect tooltip ---
+  // On mousemove (painting or not), show a small tooltip near the cursor reading
+  // the cell under it as "material  tempC  phase" (e.g. "lava  1142C  liquid").
+  // Reads live via FLUX.cellAt; pure DOM, never touches sim state. rAF-throttled
+  // so it updates at most once per frame no matter how fast the pointer moves.
+  const tipEl = document.getElementById('inspect-tip');
+  let tipPending = null; // {clientX, clientY, gx, gy} queued for the next frame
+  let tipRaf = 0;
+
+  function hideInspect() {
+    tipPending = null;
+    if (tipEl) tipEl.hidden = true;
+  }
+  function updateInspect(ev, gx, gy) {
+    if (!tipEl) return;
+    tipPending = { clientX: ev.clientX, clientY: ev.clientY, gx, gy };
+    if (!tipRaf) tipRaf = requestAnimationFrame(flushInspect);
+  }
+  function flushInspect() {
+    tipRaf = 0;
+    const p = tipPending;
+    if (!p) return;
+    if (!grid.inBounds(p.gx, p.gy)) { hideInspect(); return; }
+    const cell = FLUX.cellAt(p.gx, p.gy);
+    if (!cell) { hideInspect(); return; }
+    const mat = String(cell.material).replace(/_/g, ' ');
+    tipEl.textContent = `${mat}  ${cell.tempC}C  ${cell.phase}`;
+    // Offset a little from the cursor; keep it on-screen near the right/bottom edges.
+    const off = 14;
+    let left = p.clientX + off, top = p.clientY + off;
+    const w = tipEl.offsetWidth || 80, h = tipEl.offsetHeight || 20;
+    if (left + w > window.innerWidth) left = p.clientX - off - w;
+    if (top + h > window.innerHeight) top = p.clientY - off - h;
+    tipEl.style.left = left + 'px';
+    tipEl.style.top = top + 'px';
+    tipEl.hidden = false;
+  }
 
   // --- keyboard shortcuts ---
   window.addEventListener('keydown', (e) => {
@@ -202,7 +277,27 @@ export function initUI(ctx) {
     else if (k === 'c' || k === 'C') { reset(); }
     else if (k === '[') { const b = Math.max(0, getState().brushSize - 2); setBrush(b); FLUX.setBrush(b); }
     else if (k === ']') { const b = getState().brushSize + 2; setBrush(b); FLUX.setBrush(b); }
+    else if (k === 'b' || k === 'B') { toggleShape(); }
   });
+
+  // --- brush shape toggle (circle <-> square) ---
+  // Default stays circle so existing hashes are unaffected until the user flips
+  // it. Routes through FLUX.setBrushShape so a bot drives it identically.
+  const shapeBtn = document.getElementById('shapeBtn');
+  function refreshShapeBtn() {
+    if (!shapeBtn) return;
+    const s = getState().brushShape || 'circle';
+    shapeBtn.textContent = (s === 'square' ? 'Square' : 'Circle') + ' (B)';
+  }
+  function toggleShape() {
+    const cur = getState().brushShape || 'circle';
+    const next = cur === 'circle' ? 'square' : 'circle';
+    if (setBrushShape) setBrushShape(next);
+    FLUX.setBrushShape(next);
+    refreshShapeBtn();
+  }
+  if (shapeBtn) shapeBtn.addEventListener('click', () => toggleShape());
+  refreshShapeBtn();
 
   // --- brush slider ---
   const slider = document.getElementById('brush');
