@@ -98,7 +98,12 @@ export function initUI(ctx) {
     setSelected(name);
     FLUX.setMaterial(name);
     document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s.dataset.mat === name));
+    // Picking a material leaves temp-tool mode (defined below via setTempTool).
+    if (typeof clearTempTool === 'function') clearTempTool();
   }
+  // Forward declaration hook: selectMat may run before the temp-tool helpers are
+  // defined, so it calls through this optional reference set up later.
+  let clearTempTool = null;
   selectMat('sand');
 
   // --- per-scenario instruction overlay ---
@@ -187,15 +192,35 @@ export function initUI(ctx) {
   // stroke so a fast drag is filled with FLUX.paintLine (no dotted gaps).
   let painting = false;
   let lastX = 0, lastY = 0;
+  // tempTool: null (normal material painting), 'heat' (+400/step), or 'cool'
+  // (-400/step). When set, dragging on the canvas applies FLUX.heatBrush along
+  // the stroke instead of painting material. Selecting a material swatch or the
+  // eraser clears it (see selectMat wrapper below).
+  let tempTool = null;
+  const HEAT_DELTA = 400, COOL_DELTA = -400;
   function toGrid(ev) {
     const rect = canvas.getBoundingClientRect();
     const x = ((ev.clientX - rect.left) / rect.width) * grid.w;
     const y = ((ev.clientY - rect.top) / rect.height) * grid.h;
     return { x: Math.floor(x), y: Math.floor(y) };
   }
-  // Stamp from the last stroke cell to the current one. 'erase' paints EMPTY
-  // (id 0) regardless of the selected material; 'paint' uses the selection.
+  // Stamp from the last stroke cell to the current one. In temp-tool mode, apply
+  // heatBrush at each interpolated cell along the segment (so a fast drag heats a
+  // continuous band, matching how material painting fills). Otherwise 'erase'
+  // paints EMPTY (id 0) regardless of selection; 'paint' uses the selection.
   function strokeTo(x, y) {
+    if (tempTool) {
+      const delta = tempTool === 'cool' ? COOL_DELTA : HEAT_DELTA;
+      const dx = x - lastX, dy = y - lastY;
+      const steps = Math.max(Math.abs(dx), Math.abs(dy));
+      if (steps === 0) FLUX.heatBrush(x, y, delta);
+      else for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        FLUX.heatBrush(Math.round(lastX + dx * t), Math.round(lastY + dy * t), delta);
+      }
+      lastX = x; lastY = y;
+      return;
+    }
     const id = painting === 'erase' ? 0 : undefined; // undefined -> selected material
     FLUX.paintLine(lastX, lastY, x, y, undefined, id);
     lastX = x; lastY = y;
@@ -345,6 +370,63 @@ export function initUI(ctx) {
   if (stepBtn) stepBtn.addEventListener('click', () => step());
   const clearBtn = document.getElementById('clearBtn');
   if (clearBtn) clearBtn.addEventListener('click', () => reset());
+
+  // --- heat / cool temperature tools ---
+  // Selecting a tool enters temp-brush mode (strokeTo applies FLUX.heatBrush
+  // instead of painting material). The buttons toggle: clicking the active one
+  // exits back to material painting. Picking a material swatch also exits (via
+  // the clearTempTool hook wired into selectMat).
+  const heatBtn = document.getElementById('heatBtn');
+  const coolBtn = document.getElementById('coolBtn');
+  function refreshTempButtons() {
+    if (heatBtn) heatBtn.classList.toggle('active', tempTool === 'heat');
+    if (coolBtn) coolBtn.classList.toggle('active', tempTool === 'cool');
+    // A temp tool overrides the material selection cue; drop the swatch highlight
+    // while a temp tool is active so the UI shows exactly one active tool.
+    if (tempTool) document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+  }
+  function setTempTool(which) {
+    tempTool = (tempTool === which) ? null : which; // toggle off if re-clicked
+    refreshTempButtons();
+    if (!tempTool) {
+      // returning to material painting: restore the active swatch highlight
+      const m = getState().selectedMaterial;
+      document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s.dataset.mat === m));
+    }
+  }
+  // Wire the forward-declared hook so selectMat can clear the tool on material pick.
+  clearTempTool = () => { if (tempTool) { tempTool = null; refreshTempButtons(); } };
+  if (heatBtn) heatBtn.addEventListener('click', () => setTempTool('heat'));
+  if (coolBtn) coolBtn.addEventListener('click', () => setTempTool('cool'));
+
+  // --- variable sim speed (0.5x / 1x / 2x / 4x) ---
+  // Routes through FLUX.setSpeed so a bot drives it identically. The active
+  // button is highlighted; 1x is the default at boot.
+  const speedBtns = Array.from(document.querySelectorAll('.pill.speed'));
+  function refreshSpeedButtons(mult) {
+    speedBtns.forEach(b => b.classList.toggle('active', +b.dataset.speed === mult));
+  }
+  speedBtns.forEach(b => b.addEventListener('click', () => {
+    const m = FLUX.setSpeed(+b.dataset.speed);
+    refreshSpeedButtons(m);
+  }));
+  refreshSpeedButtons(1);
+
+  // --- PNG export ---
+  // Grab the canvas as a PNG data URL (FLUX.exportPNG) and trigger a browser
+  // download via a synthetic anchor with a timestamped filename.
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    const url = FLUX.exportPNG();
+    if (!url) return;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fluxsand_${ts}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
 
   // --- HUD updater ---
   const hud = document.getElementById('hud');

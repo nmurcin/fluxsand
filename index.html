@@ -35,6 +35,30 @@
       <button id="clearBtn" class="pill danger">Clear (C)</button>
     </div>
 
+    <!-- Heat/Cool tools: selecting one puts the canvas in a temperature-brush
+         mode where dragging applies heatBrush (+400 / -400) to grid.temp instead
+         of painting material. Click again (or pick a material) to leave the mode. -->
+    <div class="topbar-group">
+      <span class="grp-label">Temp</span>
+      <button id="heatBtn" class="pill" title="Heat brush: drag to add heat">Heat +</button>
+      <button id="coolBtn" class="pill" title="Cool brush: drag to remove heat">Cool -</button>
+    </div>
+
+    <!-- Variable sim speed: 0.5x slow-mo, 1x, 2x/4x fast-forward. Drives the live
+         rAF loop only; deterministic stepping (Step / harness) is unaffected. -->
+    <div class="topbar-group">
+      <span class="grp-label">Speed</span>
+      <button class="pill speed" data-speed="0.5">0.5x</button>
+      <button class="pill speed" data-speed="1">1x</button>
+      <button class="pill speed" data-speed="2">2x</button>
+      <button class="pill speed" data-speed="4">4x</button>
+    </div>
+
+    <div class="topbar-group">
+      <span class="grp-label">Save</span>
+      <button id="exportBtn" class="pill">Export PNG</button>
+    </div>
+
     <div class="topbar-group brush-group">
       <span class="grp-label">Brush</span>
       <input id="brush" type="range" min="0" max="20" value="6" />

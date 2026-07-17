@@ -87,6 +87,7 @@ function publishState() {
     brushShape,
     paused,
     overlay,
+    simSpeed,
     totals: {
       thermalEnergyJ: t.thermalEnergyJ,
       cellsByPhase: t.cellsByPhase,
@@ -151,8 +152,37 @@ function paintLine(x0, y0, x1, y1, r = brushSize, id = BY_NAME[selectedMaterial]
   }
 }
 
+// ---- heat/cool brush (grid coords) ----------------------------------------
+// Add `delta` degrees to grid.temp for every cell within radius r of (cx,cy),
+// clamped to never go below absolute zero (-273.15C). This is pure arithmetic
+// on the temp array — it touches no rng and no wall clock, so it is fully
+// deterministic and safe for the seed-hashed test suite. Circle neighborhood
+// (same radius test as paint) so it reads like a temperature brush.
+function heatBrush(cx, cy, delta, r = brushSize) {
+  const rr = r * r;
+  const temp = grid.temp;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > rr) continue;
+      const x = cx + dx, y = cy + dy;
+      if (!grid.inBounds(x, y)) continue;
+      const i = grid.idx(x, y);
+      let t = temp[i] + delta;
+      if (t < -273.15) t = -273.15;
+      temp[i] = t;
+    }
+  }
+}
+
 // ---- main loop (fixed-dt; rAF can be frozen for deterministic stepping) ----
+// simSpeed: >=1 runs that many sim.step() calls per frame (fast-forward);
+// <1 steps only every Kth frame (slow-mo) via _slowFrames. Total sim.step()
+// calls remain integer and seed-driven, so determinism is preserved — the
+// harness still drives sim.step() directly through FLUX.step(n) and never
+// depends on the rAF cadence.
 let rafFrozen = false;
+let simSpeed = 1;      // 0.5 | 1 | 2 | 4
+let _slowFrames = 0;   // counts frames while slow-mo waits to take a step
 function frame(now) {
   if (!rafFrozen) {
     if (_lastT) {
@@ -161,7 +191,17 @@ function frame(now) {
       if (_fpsAccum >= 250) { fps = 1000 / (_fpsAccum / _fpsCount); _fpsAccum = 0; _fpsCount = 0; }
     }
     _lastT = now;
-    if (!paused) sim.step();
+    if (!paused) {
+      if (simSpeed >= 1) {
+        // fast-forward: N integer steps this frame
+        const n = simSpeed | 0;
+        for (let k = 0; k < n; k++) sim.step();
+      } else {
+        // slow-mo: take one step every Math.round(1/simSpeed) frames
+        const period = Math.max(1, Math.round(1 / simSpeed));
+        if (++_slowFrames >= period) { _slowFrames = 0; sim.step(); }
+      }
+    }
     renderer.setMode(overlay);
     renderer.draw();
     publishState();
@@ -200,6 +240,26 @@ const FLUX = {
       id === undefined ? BY_NAME[selectedMaterial]
         : (typeof id === 'string' ? BY_NAME[id] : (id | 0)));
   },
+  // heat/cool brush: add `delta` degC to every cell within radius r of (x,y),
+  // clamped at absolute zero. Pure temp arithmetic — deterministic, no rng.
+  // r optional (defaults to the current brush size).
+  heatBrush(x, y, delta, r) {
+    heatBrush(x | 0, y | 0, +delta || 0, r === undefined ? brushSize : r | 0);
+    if (rafFrozen) publishState();
+  },
+  // variable sim speed for the live rAF loop. mult in {0.5,1,2,4} (any >0 is
+  // accepted): >=1 runs `mult` integer steps/frame, <1 steps every Kth frame.
+  // Does NOT change step(n) — the harness still drives ticks directly — and
+  // total steps stay integer + seed-driven, so determinism is untouched.
+  setSpeed(mult) {
+    const m = +mult;
+    if (isFinite(m) && m > 0) { simSpeed = m; _slowFrames = 0; }
+    publishState();
+    return simSpeed;
+  },
+  // export the current canvas as a PNG data URL (renders happen on the canvas
+  // element, so this is a straight toDataURL). Pure read of pixels — no sim state.
+  exportPNG() { return canvas.toDataURL('image/png'); },
   // deterministic stepping: freeze rAF, advance exactly n ticks, redraw once
   step(n = 1) {
     rafFrozen = true;
