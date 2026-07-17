@@ -57,6 +57,13 @@ export const M = {
   NAPALM: 35,
   // blast/damage
   DENTED_METAL: 36,
+  // --- pyrotechnics + emitters roster ---
+  FUSE: 37,
+  FUSE_LIT: 38,
+  TNT: 39,
+  WATER_SPOUT: 40,
+  LAVA_SPOUT: 41,
+  SAND_SOURCE: 42,
 };
 
 // color: base RGB [r,g,b] at "cool" temperature.
@@ -285,6 +292,53 @@ export const MATERIALS = [
   { id: 36, name: 'dented_metal', phase: PHASE.SOLID, color: [90, 105, 136], density: 60,
     conduct: 0.9, heatCap: 0.5, melt: 1400, latentMelt: 120, meltTo: () => M.MOLTEN_METAL,
     heatColor: true, glow: 0 },
+
+  // ================== PYROTECHNICS + EMITTERS =========================
+  // Reactions for these live in reaction_rules.js.
+
+  // 37 FUSE — a solid cord that burns SLOWLY along its length. Unlike gunpowder
+  // (a fast deflagrating powder), fuse is flammable-but-slow: reaction rules light
+  // it at a LOW chance (~0.15) into a short-lived fuse_lit that decays to smoke and
+  // ignites the next cell, so the flame visibly CREEPS at a controlled speed. Low
+  // conduct + high ignite means stray heat won't run the whole line — only the
+  // cell-to-cell reaction crawl does. NOT explosive.
+  { id: 37, name: 'fuse', phase: PHASE.SOLID, color: [120, 90, 60], density: 16,
+    conduct: 0.08, heatCap: 1.2, glow: 0 },
+
+  // 38 FUSE_LIT — the burning node on a fuse cord. lifetime 25: a node must reliably
+  // OUTLIVE the ~1/0.15≈6.7-tick expected handoff so the front never stalls mid-cord,
+  // yet each cell still DWELLS (the slow crawl) rather than flashing. Glows/heats like
+  // an ember, ignitesNeighbors so it can touch off an adjacent charge at the line's
+  // end, then decays to smoke.
+  { id: 38, name: 'fuse_lit', phase: PHASE.SOLID, color: [255, 137, 51], density: 16,
+    conduct: 0.1, heatCap: 1.0, baseTemp: 650, glow: 0.9, heatColor: true,
+    lifetime: 25, ignitesNeighbors: true, decayTo: () => M.SMOKE },
+
+  // 39 TNT — packed high explosive. Solid so a charge stays put until lit. explosive:6
+  // (blast radius per cell) vs gunpowder's 2, and the reactionPass explosive-contact
+  // branch queues a blast keyed off this property, so a spark/fire touching TNT
+  // detonates it instantly. blast.resolveAll cluster-merges a packed charge's cells
+  // into ONE energy-scaled blast the same tick -> a real high-order bang that breaches
+  // a sealed metal box in 1-2 ticks (contrast gunpowder's cell-by-cell deflagration).
+  { id: 39, name: 'tnt', phase: PHASE.SOLID, color: [178, 44, 44], density: 20,
+    conduct: 0.12, heatCap: 1.0, explosive: 6, glow: 0 },
+
+  // 40 WATER_SPOUT — a fixed faucet. A static solid (won't move); a reaction rule
+  // emits water into an adjacent EMPTY cell each tick at a metered chance. `static`
+  // is a no-op on solids (they don't move anyway) but documents intent.
+  { id: 40, name: 'water_spout', phase: PHASE.SOLID, color: [0, 90, 160], density: 80,
+    conduct: 0.3, heatCap: 1.0, static: true, glow: 0 },
+
+  // 41 LAVA_SPOUT — a fixed lava vent. Static solid; a reaction rule emits lava into
+  // an adjacent EMPTY cell. baseTemp keeps the vent itself hot so emitted lava reads
+  // molten immediately (lava seeds its own baseTemp on placement via grid.set).
+  { id: 41, name: 'lava_spout', phase: PHASE.SOLID, color: [120, 40, 20], density: 80,
+    conduct: 0.3, heatCap: 1.0, baseTemp: 1150, static: true, glow: 0.3, heatColor: true },
+
+  // 42 SAND_SOURCE — a fixed hopper. Static solid; a reaction rule emits sand into an
+  // adjacent EMPTY cell (a continuous sand faucet the player can place).
+  { id: 42, name: 'sand_source', phase: PHASE.SOLID, color: [150, 110, 60], density: 80,
+    conduct: 0.22, heatCap: 0.8, static: true, glow: 0 },
 ];
 
 // Fast lookup by name (used by tools/UI and scenarios).
@@ -311,6 +365,7 @@ export const PALETTE = [
   'sand', 'water', 'oil', 'lava', 'ice', 'wood', 'metal', 'stone', 'gasoline', 'fire',
   'liquid_nitrogen', 'gunpowder', 'thermite', 'spark', 'mercury', 'napalm', 'acid',
   'dry_ice', 'snow', 'coal', 'wax', 'concrete', 'plant',
+  'fuse', 'tnt', 'water_spout', 'lava_spout', 'sand_source',
 ];
 
 export function matName(id) {

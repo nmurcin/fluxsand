@@ -69,6 +69,24 @@ export const REACTION_RULES = [
   { a: 'thermite', b: 'water', chance: 0.9, tempMin: 1000, a_into: 'keep', b_into: 'steam',
     b_temp: 130, desc: 'burning thermite flashes water to steam and keeps going' },
 
+  // ============ FUSE — a slow, controlled crawl (NOT a whoosh) ============
+  // A lit fuse node (fuse_lit) or a stray flame lights an adjacent fuse cell at a
+  // LOW per-tick chance (~0.15) into fuse_lit. Contrast gunpowder (~0.95): the low
+  // chance means each next cell takes several ticks to catch, so the burning front
+  // visibly CREEPS along the cord. fuse_lit is short-lived (lifetime 14) and decays
+  // to smoke, and it ignitesNeighbors, so the flame hands off cell-to-cell down the
+  // line at a steady, slow speed and can touch off a charge at the far end.
+  { a: 'fuse', b: 'fuse_lit', chance: 0.15, a_into: 'fuse_lit', b_into: 'keep',
+    a_temp: 650, desc: 'the burning fuse front slowly creeps to the next cord cell' },
+  { a: 'fuse', b: 'fire', chance: 0.15, a_into: 'fuse_lit', b_into: 'keep',
+    a_temp: 650, desc: 'a flame lights the fuse (slow catch)' },
+  { a: 'fuse', b: 'ember', chance: 0.15, a_into: 'fuse_lit', b_into: 'keep',
+    a_temp: 650, desc: 'an ember lights the fuse (slow catch)' },
+  { a: 'fuse', b: 'spark', chance: 0.15, a_into: 'fuse_lit', b_into: 'empty',
+    a_temp: 650, desc: 'a spark lights the fuse end (slow catch), spark spent' },
+  { a: 'fuse', b: 'lava', chance: 0.15, a_into: 'fuse_lit', b_into: 'keep',
+    a_temp: 650, desc: 'lava lights an adjacent fuse (slow catch)' },
+
   // ============ FUSES & FUELS — gunpowder, gasoline, napalm, coal, spark ============
   { a: 'gunpowder', b: 'spark', chance: 1, a_into: 'fire', b_into: 'fire',
     a_temp: 900, b_temp: 900, heat: 300, desc: 'spark flashes gunpowder to a double burst' },
@@ -113,4 +131,16 @@ export const REACTION_RULES = [
   // Mercury amalgamates and consumes solid metal into more mercury.
   { a: 'mercury', b: 'metal', chance: 0.03, a_into: 'keep', b_into: 'mercury',
     desc: 'mercury amalgamates metal, creeping through machinery' },
+
+  // ============ EMITTERS — fixed faucets / vents / hoppers ============
+  // Each spout is a static solid that stays put (a_into 'keep') and, at a metered
+  // per-tick chance (seeded rng, so fully deterministic), turns an adjacent EMPTY
+  // cell into its product. The product then falls/flows/piles on its own via the
+  // movement pass, giving a continuous faucet the player can place.
+  { a: 'water_spout', b: 'empty', chance: 0.25, a_into: 'keep', b_into: 'water',
+    desc: 'water faucet: emits water into adjacent empty space' },
+  { a: 'lava_spout', b: 'empty', chance: 0.25, a_into: 'keep', b_into: 'lava',
+    desc: 'lava vent: emits lava into adjacent empty space' },
+  { a: 'sand_source', b: 'empty', chance: 0.25, a_into: 'keep', b_into: 'sand',
+    desc: 'sand hopper: emits sand into adjacent empty space' },
 ];
