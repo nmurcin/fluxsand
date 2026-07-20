@@ -93,9 +93,13 @@ export class Blast {
     for (let c = 0; c < clusters.length; c++) {
       const cl = clusters[c];
       // log-scaled: 1 grain -> baseE; 4 grains -> ~2x; 16 -> ~3x. Radius grows sqrt.
-      const scale = 1 + Math.log2(cl.n <= 0 ? 1 : cl.n);
+      // Bumped: a touch more energy per cluster and a larger radius cap so a real
+      // charge produces a bigger, gassier bloom. Wall damage thresholds are
+      // unchanged, so this makes the FIRE/SMOKE cloud + fling bigger without
+      // turning single grains into wall-breachers (still gated by DENT/BREACH_E).
+      const scale = 1.15 + Math.log2(cl.n <= 0 ? 1 : cl.n);
       const E = cl.baseE * scale;
-      const R = Math.min(cl.baseR + Math.floor(Math.sqrt(cl.n)), 12);
+      const R = Math.min(cl.baseR + Math.floor(1.5 * Math.sqrt(cl.n)), 16);
       affected += this._detonate({ cx: cl.cx, cy: cl.cy, E, R, salt: (this._salt = (this._salt + 1) | 0) });
     }
     return affected;
@@ -122,11 +126,29 @@ export class Blast {
         const e = E * falloff;                // local blast energy
         if (e <= 0.05) continue;
 
-        // (a) empty / gas: seed a puff of fire near center, smoke further out
+        // (a) empty / gas: ERUPT a hot expanding gas cloud (the "pop"). Instead of
+        // the old sparse puff (chance 0.7, only e>0.6, so most of the disc stayed
+        // empty), fill the disc aggressively: a FIRE core near center and a broad
+        // hot SMOKE body across the rest. The seeded gas then rises + billows via
+        // the gas movement pass, so the blast visibly blooms outward and lingers.
+        // Seeded temps are bounded (<~2000C) so no charge can breach the 5000C
+        // no-blowup guard. Deterministic (position hash, no rng, no clock).
         if (id === M.EMPTY || def.phase === PHASE.GAS) {
-          if (e > 0.6 && hash01(cx, cy, x, y | 1, salt) < 0.7) {
-            g.convert(i, e > 1.2 ? M.FIRE : M.SMOKE, false);
-            affected++;
+          const roll = hash01(cx, cy, x, y | 1, salt);
+          if (e > 1.0) {
+            // CORE: near-certain fire, hot but capped. Hotter toward the center.
+            if (roll < 0.9) {
+              g.convert(i, M.FIRE, false);
+              temp[i] = Math.min(2000, Math.max(temp[i], 700 + e * 110));
+              affected++;
+            }
+          } else if (e > 0.12) {
+            // BODY: the bulk of the cloud — hot smoke that rises and expands.
+            if (roll < 0.82) {
+              g.convert(i, M.SMOKE, false);
+              temp[i] = Math.min(900, Math.max(temp[i], 180 + e * 160));
+              affected++;
+            }
           }
           continue;
         }
@@ -169,8 +191,10 @@ export class Blast {
           temp[i] += e * 60;
           const sx = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
           const sy = dy === 0 ? 0 : (dy > 0 ? 1 : -1);
-          let hop = 1 + Math.floor(e * 3);
-          if (hop > 5) hop = 5;
+          // more energetic fling: longer hops (momentum) — scale harder with local
+          // energy and raise the cap so a strong blast really throws debris.
+          let hop = 1 + Math.floor(e * 5);
+          if (hop > 9) hop = 9;
           for (; hop >= 1; hop--) {
             const tx = x + sx * hop, ty = y + sy * hop;
             if (!g.inBounds(tx, ty)) continue;
@@ -191,9 +215,10 @@ export class Blast {
         }
       }
     }
-    // a hot flash at the very center
+    // a hot flash at the very center — a bit hotter now to seed the fire core's
+    // glow (still well under the 5000C guard).
     const ci = cy * w + cx;
-    if (g.inBounds(cx, cy)) temp[ci] = Math.max(temp[ci], 900);
+    if (g.inBounds(cx, cy)) temp[ci] = Math.max(temp[ci], 1200);
     return affected;
   }
 }

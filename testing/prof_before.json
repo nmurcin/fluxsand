@@ -1,8 +1,0 @@
-{
- "empty (idle)": 1.94,
- "volcano (sparse hot)": 24.126,
- "steam (boiler)": 29.357,
- "thermite (busy)": 37.406,
- "rubegoldberg (chain)": 22.142,
- "STRESS fill (80% grid)": 64.492
-}

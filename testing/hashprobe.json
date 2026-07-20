@@ -108,16 +108,16 @@
   "hottest": 1500
  },
  "RubeGoldberg:1:200": {
-  "hash": 3411892932,
-  "energy": 2990005,
+  "hash": 1558857823,
+  "energy": 3027260,
   "phases": {
-   "empty": 89205,
-   "powder": 175,
-   "liquid": 2962,
-   "gas": 1260,
-   "solid": 6398
+   "empty": 88785,
+   "powder": 309,
+   "liquid": 2932,
+   "gas": 1842,
+   "solid": 6132
   },
-  "hottest": 1477
+  "hottest": 1473
  },
  "Hourglass:4:200": {
   "hash": 4250448721,

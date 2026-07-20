@@ -74,8 +74,8 @@ export class Particles {
 
     // --- screen shake (decaying magnitude in screen px) ----------------------
     this.shakeMag = 0;
-    this.SHAKE_MAX = 7;       // cap so it reads as punch, not chaos
-    this.SHAKE_DECAY = 0.86;  // per-frame multiplicative decay
+    this.SHAKE_MAX = 12;      // cap so it reads as a punch (raised for the new blasts)
+    this.SHAKE_DECAY = 0.88;  // per-frame multiplicative decay (slightly longer punch)
 
     // --- edge-detection memory for spawn events (pure numbers, never sim) -----
     this._lastTick = -1;
@@ -98,26 +98,57 @@ export class Particles {
   }
 
   // Burst of sparks + embers from a detonation, centered on a screen point.
-  // `power` scales count + speed (from the blast cell count).
+  // `power` scales count + speed (from the blast cell count). Overhauled for a
+  // punchy, energetic "pop": many more particles, much higher OUTWARD radial
+  // velocity (real momentum that decays with drag), a bias toward a shell rather
+  // than a uniform disc (so it reads as an expanding front), plus a fast bright
+  // shockwave ring of tiny sparks and a few rising smoke puffs. Display-only.
   _burst(sx, sy, power) {
-    const n = Math.min(64, 10 + (power * 1.5) | 0);
+    // count scales with power but is capped by the ring buffer; a big charge
+    // throws a genuine cloud of debris, not a dozen dots.
+    const n = Math.min(220, 40 + (power * 6) | 0);
+    const spdBase = this.scale * (0.22 + power * 0.06);   // much faster than before
     for (let k = 0; k < n; k++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = (0.06 + Math.random() * 0.18) * this.scale * (1 + power * 0.03);
-      const ember = Math.random() < 0.35;
-      // sparks fly fast in all directions; embers are slower + buoyant.
+      // Shell bias: most speed near a moving front (0.55..1.0 of spdBase) with a
+      // fast tail, so the burst expands as a ring instead of a fuzzy blob.
+      const shell = 0.55 + Math.random() * 0.45;
+      const spd = spdBase * shell * (0.6 + Math.random() * 0.9);
+      const ember = Math.random() < 0.4;
       const vx = Math.cos(ang) * spd;
       let vy = Math.sin(ang) * spd;
-      if (ember) vy -= 0.02 * this.scale; // embers get a little upward bias
+      if (ember) vy -= 0.03 * this.scale;   // embers get an upward buoyancy kick
       this._spawn(
         sx + (Math.random() - 0.5) * this.scale * 2,
         sy + (Math.random() - 0.5) * this.scale * 2,
         vx, vy,
-        ember ? 500 + Math.random() * 600 : 220 + Math.random() * 300,
-        ember ? 1.5 + Math.random() * 2 : 1 + Math.random() * 1.5,
+        ember ? 600 + Math.random() * 800 : 260 + Math.random() * 380,
+        ember ? 1.5 + Math.random() * 2.5 : 1 + Math.random() * 1.8,
         ember ? 1 : 0,
         ember ? pick(EMBER_COLORS) : pick(SPARK_COLORS),
       );
+    }
+    // SHOCKWAVE RING: a tight burst of very fast, short-lived white/yellow sparks
+    // all at nearly the same high speed, so they read as a single expanding rim.
+    const ringN = Math.min(90, 24 + (power * 3) | 0);
+    const ringSpd = spdBase * 1.7;
+    for (let k = 0; k < ringN; k++) {
+      const ang = (k / ringN) * Math.PI * 2 + Math.random() * 0.15;
+      const spd = ringSpd * (0.9 + Math.random() * 0.2);
+      this._spawn(sx, sy, Math.cos(ang) * spd, Math.sin(ang) * spd,
+        180 + Math.random() * 160, 1 + Math.random() * 1.2, 0,
+        Math.random() < 0.5 ? [255, 255, 255] : [254, 231, 97]);
+    }
+    // A few rising smoke puffs launched with the blast (the lingering cloud).
+    const puffs = Math.min(10, 2 + (power * 0.5) | 0);
+    for (let k = 0; k < puffs; k++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = spdBase * 0.4 * (0.4 + Math.random() * 0.6);
+      this._spawn(
+        sx + (Math.random() - 0.5) * this.scale * 3,
+        sy + (Math.random() - 0.5) * this.scale * 3,
+        Math.cos(ang) * spd, Math.sin(ang) * spd - 0.03 * this.scale,
+        900 + Math.random() * 900, 2.5 + Math.random() * 3, 2, pick(SMOKE_COLORS));
     }
   }
 
@@ -185,8 +216,8 @@ export class Particles {
     const blasts = (state.blasts | 0);
     if (blasts > 0 && hc) {
       this._burst(hx, hy, blasts);
-      // shake magnitude scales with blast size, capped small.
-      const mag = Math.min(this.SHAKE_MAX, 1.5 + blasts * 0.25);
+      // stronger, punchier shake that ramps faster with blast size (still capped).
+      const mag = Math.min(this.SHAKE_MAX, 3 + blasts * 0.6);
       if (mag > this.shakeMag) this.shakeMag = mag;
     }
 
@@ -234,9 +265,13 @@ export class Particles {
       this.y[i] += this.vy[i] * dt;
       const kind = this.kind[i];
       if (kind === 0) {
-        // sparks: fall under gravity, slight air drag
+        // sparks: fall under gravity with light air drag. Drag is per-ms via a
+        // frame-rate-independent factor so the initial blast momentum carries
+        // visibly outward before gravity takes over (was a flat 0.98/frame).
         this.vy[i] += g * dt;
-        this.vx[i] *= 0.98;
+        const drag = Math.pow(0.992, dt);
+        this.vx[i] *= drag;
+        this.vy[i] *= drag;
       } else if (kind === 1) {
         // embers: near-neutral buoyancy, drift up slowly, wobble
         this.vy[i] -= g * 0.35 * dt;
