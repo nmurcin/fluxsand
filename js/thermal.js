@@ -188,10 +188,14 @@ export class Thermal {
   // Apply energy-gated phase transitions. Returns number of cells transmuted.
   phaseChanges(dt = 1.0) {
     const g = this.g;
-    const { mat, temp, latent } = g;
+    const { mat, temp, latent, rowCount, w, h } = g;
     let changes = 0;
 
-    for (let i = 0; i < g.n; i++) {
+    // Row-skip empty rows (every cell there would `continue` on EMPTY anyway).
+    for (let y = 0; y < h; y++) {
+      if (rowCount[y] === 0) continue;
+      const rowBase = y * w, rowEnd = rowBase + w;
+      for (let i = rowBase; i < rowEnd; i++) {
       const id = mat[i];
       if (id === M.EMPTY) continue;
       const d = MATERIALS[id];
@@ -246,7 +250,8 @@ export class Thermal {
         changes++;
         continue;
       }
-    }
+      } // inner per-cell loop
+    } // per-row loop
     return changes;
   }
 

@@ -155,6 +155,14 @@ export class Effects {
     const hotTop = this._hotTopY;
     const HOT = this.HOT_C;
 
+    // CHEAP EARLY-OUT: the published hottest-cell temp is already computed by the
+    // sim each frame. If the whole scene's hottest cell is below the shimmer
+    // threshold there is nothing to warp, so skip the full W*H column scan
+    // entirely. Display-only read of __STATE__ (never sim state).
+    const st = (typeof window !== 'undefined') ? window.__STATE__ : null;
+    const hc = st && st.hottestCell;
+    if (hc && typeof hc.tempC === 'number' && hc.tempC < HOT) return;
+
     // Find the topmost hot cell in each column (scan top-down, first hot wins).
     let anyHot = false;
     for (let x = 0; x < w; x++) {

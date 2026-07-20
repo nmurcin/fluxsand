@@ -24,6 +24,14 @@ export class Grid {
     this.latent = new Float32Array(n);
     this.life = new Int16Array(n);
     this.moved = new Uint8Array(n);
+    // SPARSITY INDEX: rowCount[y] = number of non-empty cells in row y, maintained
+    // incrementally at EVERY mat[] write site (setIdx/convert/eraser/swaps). The sim
+    // passes (movement, reactions, phase changes, lifetimes, totals) skip any row
+    // with rowCount===0, because every cell in an all-empty row is a no-op in those
+    // passes anyway — so skipping is byte-identical, and the empty sky above most
+    // scenes (the bulk of the grid) costs nothing. A missed write-site would desync
+    // the sim and trip testing/hashprobe.py --check, so correctness is verifiable.
+    this.rowCount = new Int32Array(h);
     this.ambient = 22; // ambient/room temperature in C
     this.clear();
   }
@@ -41,6 +49,7 @@ export class Grid {
     this.latent.fill(0);
     this.life.fill(-1);
     this.moved.fill(0);
+    this.rowCount.fill(0);
   }
 
   // Place a material at a cell, initializing temp/lifetime from its definition.
@@ -52,6 +61,10 @@ export class Grid {
 
   setIdx(i, id) {
     const def = MATERIALS[id];
+    // occupancy delta before overwriting (id may be EMPTY, e.g. share applyScene)
+    const wasEmpty = this.mat[i] === M.EMPTY;
+    const nowEmpty = id === M.EMPTY;
+    if (wasEmpty !== nowEmpty) this.rowCount[(i / this.w) | 0] += nowEmpty ? -1 : 1;
     this.mat[i] = id;
     this.latent[i] = 0;
     if (def.baseTemp !== undefined) this.temp[i] = def.baseTemp;
@@ -63,11 +76,25 @@ export class Grid {
   convert(i, id, keepTemp = true) {
     const def = MATERIALS[id];
     const t = this.temp[i];
+    const wasEmpty = this.mat[i] === M.EMPTY;
+    const nowEmpty = id === M.EMPTY;
+    if (wasEmpty !== nowEmpty) this.rowCount[(i / this.w) | 0] += nowEmpty ? -1 : 1;
     this.mat[i] = id;
     this.latent[i] = 0;
     if (!keepTemp && def.baseTemp !== undefined) this.temp[i] = def.baseTemp;
     else this.temp[i] = t;
     this.life[i] = def.lifetime ? def.lifetime : -1;
+  }
+
+  // Erase a cell to EMPTY, resetting its thermal history — the shared primitive
+  // for the eraser tool (main.placeCell) so occupancy stays correct without that
+  // caller poking mat[] directly.
+  eraseIdx(i) {
+    if (this.mat[i] !== M.EMPTY) this.rowCount[(i / this.w) | 0]--;
+    this.mat[i] = M.EMPTY;
+    this.temp[i] = this.ambient;
+    this.latent[i] = 0;
+    this.life[i] = -1;
   }
 
   phaseAt(i) {

@@ -380,17 +380,48 @@ export const BY_NAME = {};
 for (const m of MATERIALS) BY_NAME[m.name] = m.id;
 
 // Flat property LUTs indexed by material id. Hot loops (thermal diffusion,
-// movement) read these typed arrays instead of dereferencing MATERIALS[id].prop
-// per neighbor per cell — a large speedup in JS that lets us afford a finer grid.
+// movement, reactions) read these typed arrays instead of dereferencing
+// MATERIALS[id].prop per neighbor per cell — object property access in a
+// w*h(*4) loop is one of the biggest JS costs, and a flat typed-array read is
+// several times faster. Every hot-loop property a pass needs has a LUT here.
+//
+//   CONDUCT/HEATCAP  — thermal.js diffusion
+//   PHASE/DENSITY    — sim.js movement (fall/float/sink ordering)
+//   VISCOSITY/DISPERSION/REPOSE — sim.js liquid/powder flow (default when absent)
+//   STATIC           — sim.js gas drift gate (spark/emitters don't drift)
+//   RXN_FLAGS bitset — sim.js reactionPass fast-reject (ignites/explosive/flammable)
+//
+// Materials that don't declare a property get the SAME default the old per-cell
+// code applied via `=== undefined ? default`, so the LUT read is a drop-in
+// replacement — byte-identical behavior.
 export const CONDUCT_LUT = new Float32Array(MATERIALS.length);
 export const HEATCAP_LUT = new Float32Array(MATERIALS.length);
 export const PHASE_LUT = new Uint8Array(MATERIALS.length);
 export const DENSITY_LUT = new Float32Array(MATERIALS.length);
+export const VISCOSITY_LUT = new Float32Array(MATERIALS.length);   // default 0.0
+export const DISPERSION_LUT = new Uint8Array(MATERIALS.length);    // default 4
+export const REPOSE_LUT = new Float32Array(MATERIALS.length);      // -1 == "no repose" sentinel
+export const STATIC_LUT = new Uint8Array(MATERIALS.length);        // 1 if static
+// Reaction-pass fast-reject flags (one bit each) so reactionPass can skip a
+// plain cell's three special-branch checks with a single LUT read + mask.
+export const FLAG_IGNITES = 1;
+export const FLAG_EXPLOSIVE = 2;
+export const FLAG_FLAMMABLE = 4;
+export const RXN_FLAGS_LUT = new Uint8Array(MATERIALS.length);
 for (const m of MATERIALS) {
   CONDUCT_LUT[m.id] = m.conduct;
   HEATCAP_LUT[m.id] = m.heatCap;
   PHASE_LUT[m.id] = m.phase;
   DENSITY_LUT[m.id] = m.density;
+  VISCOSITY_LUT[m.id] = m.viscosity === undefined ? 0.0 : m.viscosity;
+  DISPERSION_LUT[m.id] = m.dispersion === undefined ? 4 : m.dispersion;
+  REPOSE_LUT[m.id] = m.repose === undefined ? -1 : m.repose;
+  STATIC_LUT[m.id] = m.static ? 1 : 0;
+  let f = 0;
+  if (m.ignitesNeighbors) f |= FLAG_IGNITES;
+  if (m.explosive) f |= FLAG_EXPLOSIVE;
+  if (m.flammable && m.ignite !== undefined && m.burnTo) f |= FLAG_FLAMMABLE;
+  RXN_FLAGS_LUT[m.id] = f;
 }
 
 // Palette shown in the dock (order matters for UI + number keys 1..9,0).

@@ -265,10 +265,16 @@ export class Renderer {
       trInvSpan = 1 / (tr.max - tr.min);
     }
 
+    // At DISP_DIV===1 the display buffer is 1:1 with the sim grid, so the 2x2
+    // vote is the identity map (si === di) and calling _pick2x2 per cell is pure
+    // overhead (a function call + nested loop + MATERIALS deref for nothing). Take
+    // a straight-through fast path in that (shipping) case; keep _pick2x2 for any
+    // DISP_DIV>1 downsample. Byte-identical at DISP_DIV=1.
+    const oneToOne = (DISP_DIV === 1 && dw === g.w && dh === g.h);
     for (let dy = 0; dy < dh; dy++) {
       for (let dx = 0; dx < dw; dx++) {
         const di = dy * dw + dx;
-        const si = this._pick2x2(dx, dy);
+        const si = oneToOne ? di : this._pick2x2(dx, dy);
         const id = mat[si];
         const d = MATERIALS[id];
         const t = temp[si];

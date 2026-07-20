@@ -177,6 +177,10 @@ export class Blast {
             const j = ty * w + tx;
             if (mat[j] === M.EMPTY) {
               const tm = mat[i], tt = temp[i], tl = g.latent[i], tf = g.life[i];
+              // occupancy: material at i (non-empty, since it's loose debris) moves
+              // to the empty cell j. If they're in different rows, transfer the count.
+              const ri = (i / w) | 0, rj = (j / w) | 0;
+              if (ri !== rj) { g.rowCount[ri]--; g.rowCount[rj]++; }
               mat[i] = mat[j]; temp[i] = temp[j]; g.latent[i] = g.latent[j]; g.life[i] = g.life[j];
               mat[j] = tm; temp[j] = tt; g.latent[j] = tl; g.life[j] = tf;
               g.moved[j] = 1; g.moved[i] = 1;

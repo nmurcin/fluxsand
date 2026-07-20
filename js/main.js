@@ -91,16 +91,26 @@ function computeTotals() {
   // the comparison is raw temp[i] > that rounded value — identical to the old
   // object-based logic (first/lowest-index cell wins ties).
   let hotX = 0, hotY = 0, hotTempC = -999;
-  const mat = grid.mat, temp = grid.temp, amb = grid.ambient, n = grid.n, w = grid.w;
-  for (let i = 0; i < n; i++) {
-    const id = mat[i];
-    const d = MATERIALS[id];
-    _phaseCount[d.phase]++;
-    if (id !== M.EMPTY) {
-      _massScratch[id]++;
-      thermalEnergy += d.heatCap * (temp[i] - amb);
-      if (temp[i] > hotTempC) {
-        hotX = i % w; hotY = (i / w) | 0; hotTempC = Math.round(temp[i]);
+  const mat = grid.mat, temp = grid.temp, amb = grid.ambient, w = grid.w, h = grid.h;
+  const rowCount = grid.rowCount;
+  // Row-skip: a fully-empty row contributes ONLY w cells to the empty-phase count
+  // (index 0) and nothing to mass/energy/hottest — so tally it in one add and skip
+  // the w-iteration inner loop. Byte-identical (empty cells never touched mass,
+  // energy, or the hottest comparison; and their phase is always EMPTY=0).
+  for (let y = 0; y < h; y++) {
+    const rowBase = y * w;
+    if (rowCount[y] === 0) { _phaseCount[0] += w; continue; }
+    const rowEnd = rowBase + w;
+    for (let i = rowBase; i < rowEnd; i++) {
+      const id = mat[i];
+      const d = MATERIALS[id];
+      _phaseCount[d.phase]++;
+      if (id !== M.EMPTY) {
+        _massScratch[id]++;
+        thermalEnergy += d.heatCap * (temp[i] - amb);
+        if (temp[i] > hotTempC) {
+          hotX = i % w; hotY = (i / w) | 0; hotTempC = Math.round(temp[i]);
+        }
       }
     }
   }
@@ -165,10 +175,9 @@ function publishState() {
 // from the material definition). This is deterministic; paint touches no rng.
 function placeCell(i, id) {
   if (id === M.EMPTY) {
-    grid.mat[i] = M.EMPTY;
-    grid.temp[i] = grid.ambient;
-    grid.latent[i] = 0;
-    grid.life[i] = -1;
+    // route through grid.eraseIdx so the per-row occupancy index stays correct
+    // (it does the same temp/latent/life reset this used to do inline).
+    grid.eraseIdx(i);
   } else {
     grid.setIdx(i, id);
   }
