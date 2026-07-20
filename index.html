@@ -67,6 +67,15 @@
       <button id="muteBtn" class="pill" title="Toggle sound (M)">Mute (M)</button>
     </div>
 
+    <!-- Effects: display-only post-process toggles (bloom glow + heat shimmer).
+         Both default ON; state persists in localStorage. Purely visual — they
+         never touch the sim, so toggling them can't change any outcome. -->
+    <div class="topbar-group">
+      <span class="grp-label">FX</span>
+      <button id="bloomBtn" class="pill active" title="Toggle glow bloom (O)">Bloom (O)</button>
+      <button id="shimmerBtn" class="pill active" title="Toggle heat shimmer (H)">Shimmer (H)</button>
+    </div>
+
     <div class="topbar-group brush-group">
       <span class="grp-label">Brush</span>
       <input id="brush" type="range" min="0" max="20" value="6" />

@@ -315,6 +315,8 @@ export function initUI(ctx) {
     else if (k === ']') { const b = getState().brushSize + 2; setBrush(b); FLUX.setBrush(b); }
     else if (k === 'b' || k === 'B') { toggleShape(); }
     else if (k === 'm' || k === 'M') { toggleMute(); }
+    else if (k === 'o' || k === 'O') { toggleBloom(); }
+    else if (k === 'h' || k === 'H') { toggleShimmer(); }
   });
 
   // --- brush shape toggle (circle <-> square) ---
@@ -370,6 +372,51 @@ export function initUI(ctx) {
   }
   if (muteBtn) muteBtn.addEventListener('click', () => toggleMute());
   refreshMuteBtn();
+
+  // --- effects toggles (bloom + heat shimmer) ---
+  // Display-only post-process (see js/effects.js). Both default ON; the choice
+  // persists in localStorage so a visitor's preference survives reloads. Routes
+  // through FLUX.setBloom/setShimmer so a bot drives them identically, and reads
+  // FLUX.effectsState() for the live flags. Toggling never affects the sim.
+  const FX_BLOOM_KEY = 'fluxsand_bloom';
+  const FX_SHIMMER_KEY = 'fluxsand_shimmer';
+  const bloomBtn = document.getElementById('bloomBtn');
+  const shimmerBtn = document.getElementById('shimmerBtn');
+
+  // Apply any saved preference at startup (default ON when unset or storage
+  // blocked). '0' is the only value that means OFF; anything else stays ON.
+  function loadFxPref(key) {
+    try { return localStorage.getItem(key) !== '0'; } catch (e) { return true; }
+  }
+  function saveFxPref(key, on) {
+    try { localStorage.setItem(key, on ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  }
+  // Seed the engine from saved prefs before wiring buttons.
+  if (FLUX.setBloom) FLUX.setBloom(loadFxPref(FX_BLOOM_KEY));
+  if (FLUX.setShimmer) FLUX.setShimmer(loadFxPref(FX_SHIMMER_KEY));
+
+  function refreshFxButtons() {
+    const st = FLUX.effectsState ? FLUX.effectsState() : { bloom: true, shimmer: true };
+    if (bloomBtn) bloomBtn.classList.toggle('active', !!st.bloom);
+    if (shimmerBtn) shimmerBtn.classList.toggle('active', !!st.shimmer);
+  }
+  function toggleBloom() {
+    const st = FLUX.effectsState ? FLUX.effectsState() : { bloom: true };
+    const next = !st.bloom;
+    if (FLUX.setBloom) FLUX.setBloom(next);
+    saveFxPref(FX_BLOOM_KEY, next);
+    refreshFxButtons();
+  }
+  function toggleShimmer() {
+    const st = FLUX.effectsState ? FLUX.effectsState() : { shimmer: true };
+    const next = !st.shimmer;
+    if (FLUX.setShimmer) FLUX.setShimmer(next);
+    saveFxPref(FX_SHIMMER_KEY, next);
+    refreshFxButtons();
+  }
+  if (bloomBtn) bloomBtn.addEventListener('click', () => toggleBloom());
+  if (shimmerBtn) shimmerBtn.addEventListener('click', () => toggleShimmer());
+  refreshFxButtons();
 
   // --- thermal legend ---
   // The legend is a DOM color bar bottom-left of the stage. It's shown only in
