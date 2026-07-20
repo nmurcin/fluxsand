@@ -1,9 +1,22 @@
 // thermal.js — explicit finite-difference heat diffusion + latent-heat accumulator.
 //
-// Heat moves between 4-neighbors proportional to the harmonic-ish mean of their
-// conductivities and their temperature difference. We use a double-buffer so the
-// update is synchronous (Jacobi), and we clamp the effective diffusion number to
-// keep the explicit scheme stable (alpha*dt/dx^2 <= STABLE).
+// Heat moves between 4-neighbors proportional to the mean of their conductivities
+// and their temperature difference. We use a double-buffer so the update is
+// synchronous (Jacobi).
+//
+// STABILITY — READ BEFORE TOUCHING THE CLAMP.  This is an EXPLICIT scheme, and
+// with the material table's real conductivity/heatCap ratios it is NOT
+// unconditionally stable: the effective per-step factor sdt*Sum(conduct)/heatCap
+// exceeds 1 for the high-conductivity/low-heatCap metals (metal ~1.6, molten/
+// dented metal ~1.6, mercury ~3.7). Left unbounded, those cells would ring and —
+// for mercury — diverge to +/-Infinity, which would poison temp[] and corrupt the
+// deterministic stateHash. What actually holds the scheme together is the
+// PER-STEP dT CLAMP below (DT_CLAMP): it is a LOAD-BEARING stabilizer, not a
+// cosmetic safety margin. STABLE (0.22) alone is INSUFFICIENT for those metals —
+// do not remove or loosen DT_CLAMP thinking STABLE covers it. (If you ever want a
+// truly unconditionally-stable scheme, normalize the 4-neighbor flux by ~1/4 and
+// re-tune STABLE + the source-coupling rates, then re-baseline stateHash and the
+// visual/behavior fixtures deliberately — that is a stateHash-changing change.)
 //
 // Phase changes are energy-gated: when a cell crosses a threshold, energy that
 // WOULD raise its temperature past the threshold is instead banked into latent[i]
@@ -13,7 +26,14 @@
 
 import { MATERIALS, M, PHASE, CONDUCT_LUT, HEATCAP_LUT } from './materials.js';
 
-const STABLE = 0.22; // < 0.25 for 2D explicit stability, with margin
+// STABLE: the diffusion-number scale for the flux term. NOTE this is NOT by
+// itself sufficient for 2D explicit stability across the whole material table
+// (see the header) — the DT_CLAMP below is what actually bounds the update.
+const STABLE = 0.22;
+// DT_CLAMP: the load-bearing per-substep temperature-change limit (deg C). This
+// is what keeps the explicit scheme stable for high-conductivity/low-heatCap
+// materials (metal, mercury); it is NOT a cosmetic outlier guard. See header.
+const DT_CLAMP = 40;
 
 export class Thermal {
   constructor(grid) {
@@ -82,9 +102,15 @@ export class Thermal {
         // energy change -> temperature change, scaled by heat capacity
         const cap = HL[mat[i]];
         let dT = (sdt * flux) / (cap > 0.2 ? cap : 0.2);
-        // clamp per-step delta to avoid oscillation on huge gradients
-        if (dT > 40) dT = 40;
-        else if (dT < -40) dT = -40;
+        // LOAD-BEARING per-step clamp (see header + DT_CLAMP): bounds the explicit
+        // update so high-conductivity/low-heatCap cells (metal, mercury) can't ring
+        // or diverge. In the shipped config dT is always finite here, so the
+        // NaN/Infinity guard below never fires — it exists purely so that if a
+        // future edit ever loosens this clamp and lets a cell blow up, the bad
+        // value is contained at DT_CLAMP instead of poisoning temp[] (and thus the
+        // deterministic stateHash) with NaN/Infinity. A cheap, always-safe backstop.
+        if (dT !== dT || dT > DT_CLAMP) dT = DT_CLAMP;      // dT!==dT catches NaN
+        else if (dT < -DT_CLAMP) dT = -DT_CLAMP;
         B[i] = ti + dT;
       }
     }

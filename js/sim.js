@@ -284,7 +284,13 @@ export class Sim {
         if (up && rt) nbuf[n++] = i - w + 1;
         if (dn && lf) nbuf[n++] = i + w - 1;
         if (dn && rt) nbuf[n++] = i + w + 1;
-        const nb = nbuf.slice(0, n);
+        // NOTE: nbuf is a reused 8-slot scratch array; only the first `n` entries
+        // are valid this cell (the rest are stale from a previous cell). The
+        // ignitesNeighbors / explosive branches below read nbuf[0..n) directly.
+        // The reactions call passes nbuf + n so the engine reads the same valid
+        // prefix — we no longer allocate a fresh nbuf.slice(0,n) per non-empty
+        // cell per tick (a large amount of GC churn on a busy grid). Behavior is
+        // identical: apply() only ever reads indices [0, n).
 
         // 1) Contact heating: hot igniters (fire/ember/lava) warm ONLY their 4
         //    orthogonal neighbors, and gently. The old code dumped 45% of the
@@ -355,7 +361,7 @@ export class Sim {
         //    interactions declared in reaction_rules.js (lava+water, acid+base,
         //    cryo freezing, combustion bursts, dissolving, neutralization, ...).
         if (this.reactions.hasRules(id)) {
-          count += this.reactions.apply(g, this.rng, x, y, i, id, nb);
+          count += this.reactions.apply(g, this.rng, x, y, i, id, nbuf, n);
         }
       }
     }

@@ -15,7 +15,125 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Quality gate. Runs BEFORE deploy; deploy `needs: test`, so a red gate blocks
+  # the release. Nothing here is Windows-specific: testing/suite.py uses a
+  # hardcoded C:\ harness path and CANNOT run on ubuntu-latest, so it is NOT
+  # invoked. The gate instead (a) best-effort syntax-checks every JS module and
+  # (b) boots the REAL scoped site in headless Chromium.
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # (a) Best-effort JS syntax check of every module.
+      #     `node --check` parses without executing. On Node 20 it accepts ESM
+      #     import/export, but because a plain .js file is treated as CommonJS
+      #     unless "type":"module" is set, a top-level `import` can be rejected
+      #     on some setups. That would be a false negative here, so this step is
+      #     best-effort (|| true) -- it surfaces obvious parse errors early but
+      #     is NOT the authoritative gate. The boot smoke below is the hard gate:
+      #     it actually EXECUTES every module in a browser, which catches syntax
+      #     errors, stale imports, and crash-on-boot that a parse check misses.
+      - name: JS syntax check (best-effort)
+        run: |
+          set +e
+          for f in js/*.js; do
+            echo "node --check $f"
+            node --check "$f" || echo "  (parse check skipped/failed for $f -- boot smoke is authoritative)"
+          done
+          exit 0
+
+      # Build the EXACT runtime site the deploy will ship, then smoke-test that
+      # -- so the gate proves the scoped artifact is self-sufficient (no reliance
+      # on testing/ or repo-root files).
+      - name: Assemble runtime site (_site)
+        run: |
+          set -e
+          mkdir -p _site
+          cp -r js css index.html favicon.svg .nojekyll _site/
+          echo "Contents of _site:"
+          ls -la _site
+
+      # (b) Boot smoke: serve _site and load index.html in headless Chromium.
+      #     Hard assertions: window.__READY__ === true within a timeout AND zero
+      #     console errors / pageerrors fired during boot. This is the real gate.
+      - name: Boot smoke (headless Chromium)
+        run: |
+          set -e
+          npx --yes playwright install --with-deps chromium
+          # Inline smoke script written to the RUNNER TEMP dir (never committed,
+          # never part of the Pages artifact).
+          cat > "$RUNNER_TEMP/boot_smoke.mjs" <<'SMOKE'
+          import { chromium } from 'playwright';
+          import { createServer } from 'node:http';
+          import { readFile } from 'node:fs/promises';
+          import { extname, join, normalize } from 'node:path';
+
+          const ROOT = '_site';
+          const PORT = 8137;
+          const TYPES = {
+            '.html': 'text/html; charset=utf-8',
+            '.js':   'text/javascript; charset=utf-8',
+            '.mjs':  'text/javascript; charset=utf-8',
+            '.css':  'text/css; charset=utf-8',
+            '.svg':  'image/svg+xml',
+            '.json': 'application/json; charset=utf-8',
+          };
+
+          const server = createServer(async (req, res) => {
+            try {
+              let p = decodeURIComponent(req.url.split('?')[0]);
+              if (p === '/' || p === '') p = '/index.html';
+              // Contain within ROOT (no path traversal).
+              const rel = normalize(p).replace(/^([/\\])+/, '');
+              const file = join(ROOT, rel);
+              const body = await readFile(file);
+              res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
+              res.end(body);
+            } catch {
+              res.writeHead(404); res.end('not found');
+            }
+          });
+          await new Promise((r) => server.listen(PORT, r));
+
+          const errors = [];
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); });
+          page.on('pageerror', (e) => errors.push('pageerror: ' + (e && e.message ? e.message : String(e))));
+
+          let ready = false;
+          try {
+            await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'load', timeout: 30000 });
+            await page.waitForFunction('window.__READY__ === true', null, { timeout: 30000 });
+            ready = true;
+          } catch (e) {
+            errors.push('boot timeout/failure: ' + (e && e.message ? e.message : String(e)));
+          } finally {
+            await browser.close();
+            server.close();
+          }
+
+          if (!ready) { console.error('FAIL: window.__READY__ never became true'); }
+          if (errors.length) { console.error('FAIL: boot produced errors:\n  ' + errors.join('\n  ')); }
+          if (!ready || errors.length) process.exit(1);
+          console.log('OK: site booted (window.__READY__ === true) with zero console errors.');
+          SMOKE
+          node "$RUNNER_TEMP/boot_smoke.mjs"
+
+  # ---------------------------------------------------------------------------
+  # Deploy. Gated on `test`. Ships ONLY the runtime files by assembling a _site/
+  # dir and uploading that -- so testing/ (and the hardcoded C:\Users path in
+  # testing/*.py) and *.md never reach the public site.
+  # ---------------------------------------------------------------------------
   deploy:
+    needs: test
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -23,10 +141,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Scope the artifact to runtime files only (Option A). The repo has no
+      # build step, so we copy the exact set the live site needs into _site/.
+      - name: Assemble runtime site (_site)
+        run: |
+          set -e
+          mkdir -p _site
+          cp -r js css index.html favicon.svg .nojekyll _site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          # The whole repo is the static site (no build step). Excludes are
-          # handled by .gitignore; testing/ and .github/ are harmless to ship.
-          path: .
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

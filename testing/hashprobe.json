@@ -1,0 +1,146 @@
+{
+ "Volcano:42:100": {
+  "hash": 1113760907,
+  "energy": 4566101,
+  "phases": {
+   "empty": 66254,
+   "powder": 0,
+   "liquid": 2786,
+   "gas": 14,
+   "solid": 30946
+  },
+  "hottest": 1129
+ },
+ "Volcano:7:250": {
+  "hash": 3866479731,
+  "energy": 4678169,
+  "phases": {
+   "empty": 66203,
+   "powder": 0,
+   "liquid": 2784,
+   "gas": 15,
+   "solid": 30998
+  },
+  "hottest": 1129
+ },
+ "Steam:3:200": {
+  "hash": 610969341,
+  "energy": 8321025,
+  "phases": {
+   "empty": 67678,
+   "powder": 454,
+   "liquid": 23620,
+   "gas": 67,
+   "solid": 8181
+  },
+  "hottest": 1129
+ },
+ "Thermite:9:300": {
+  "hash": 1988575600,
+  "energy": 28839305,
+  "phases": {
+   "empty": 63513,
+   "powder": 0,
+   "liquid": 34673,
+   "gas": 153,
+   "solid": 1661
+  },
+  "hottest": 1502
+ },
+ "IceAge:5:150": {
+  "hash": 3706430682,
+  "energy": 403222,
+  "phases": {
+   "empty": 53497,
+   "powder": 0,
+   "liquid": 26806,
+   "gas": 0,
+   "solid": 19697
+  },
+  "hottest": 1129
+ },
+ "CryoLab:21:120": {
+  "hash": 62619463,
+  "energy": -5096756,
+  "phases": {
+   "empty": 67677,
+   "powder": 0,
+   "liquid": 21972,
+   "gas": 433,
+   "solid": 9918
+  },
+  "hottest": 43
+ },
+ "PowderKeg:1:120": {
+  "hash": 1204315743,
+  "energy": 0,
+  "phases": {
+   "empty": 86512,
+   "powder": 5649,
+   "liquid": 152,
+   "gas": 0,
+   "solid": 7687
+  },
+  "hottest": 42
+ },
+ "ChemLab:2:120": {
+  "hash": 3173811241,
+  "energy": 0,
+  "phases": {
+   "empty": 80624,
+   "powder": 0,
+   "liquid": 11431,
+   "gas": 0,
+   "solid": 7945
+  },
+  "hottest": 22
+ },
+ "ThermiteFoundry:9:150": {
+  "hash": 627413609,
+  "energy": 272141,
+  "phases": {
+   "empty": 90448,
+   "powder": 328,
+   "liquid": 926,
+   "gas": 4,
+   "solid": 8294
+  },
+  "hottest": 1500
+ },
+ "RubeGoldberg:1:200": {
+  "hash": 3411892932,
+  "energy": 2990005,
+  "phases": {
+   "empty": 89205,
+   "powder": 175,
+   "liquid": 2962,
+   "gas": 1260,
+   "solid": 6398
+  },
+  "hottest": 1477
+ },
+ "Hourglass:4:200": {
+  "hash": 4250448721,
+  "energy": 0,
+  "phases": {
+   "empty": 85272,
+   "powder": 7812,
+   "liquid": 0,
+   "gas": 0,
+   "solid": 6916
+  },
+  "hottest": 22
+ },
+ "Empty:1:50": {
+  "hash": 796280053,
+  "energy": 0,
+  "phases": {
+   "empty": 94000,
+   "powder": 0,
+   "liquid": 0,
+   "gas": 0,
+   "solid": 6000
+  },
+  "hottest": 22
+ }
+}

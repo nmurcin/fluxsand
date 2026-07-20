@@ -64,30 +64,53 @@ function stateHash() {
 }
 
 // ---- totals for HUD + tests ------------------------------------------------
+// computeTotals runs every published frame over the whole grid (100k+ cells), so
+// it must not allocate per cell. The previous version called phaseName(d.phase)
+// — which built a fresh 5-element array literal EVERY cell — and did a
+// string-keyed massByMaterial[nm]++ every non-empty cell. Both are gone: we
+// accumulate into reused typed-array scratch buffers (phase index 0..4 and
+// material id) and build the output objects ONCE at the end. The per-cell scalar
+// math (thermalEnergy accumulation order, the hottest-cell comparison and its
+// tie-break) is preserved exactly, so the returned totals are byte-identical.
+const PHASE_NAMES = ['empty', 'powder', 'liquid', 'gas', 'solid'];
+const _phaseCount = new Int32Array(5);              // indexed by PHASE int (0..4)
+const _massScratch = new Int32Array(MATERIALS.length); // indexed by material id
 function computeTotals() {
-  const cellsByPhase = { empty: 0, powder: 0, liquid: 0, gas: 0, solid: 0 };
-  const massByMaterial = {};
+  _phaseCount.fill(0);
+  _massScratch.fill(0);
   let thermalEnergy = 0;
-  let hottest = { x: 0, y: 0, tempC: -999 };
-  const mat = grid.mat, temp = grid.temp;
-  for (let i = 0; i < grid.n; i++) {
+  // Track the hottest cell as scalars. tempC holds the ROUNDED best-so-far, and
+  // the comparison is raw temp[i] > that rounded value — identical to the old
+  // object-based logic (first/lowest-index cell wins ties).
+  let hotX = 0, hotY = 0, hotTempC = -999;
+  const mat = grid.mat, temp = grid.temp, amb = grid.ambient, n = grid.n, w = grid.w;
+  for (let i = 0; i < n; i++) {
     const id = mat[i];
     const d = MATERIALS[id];
-    cellsByPhase[phaseName(d.phase)]++;
+    _phaseCount[d.phase]++;
     if (id !== M.EMPTY) {
-      const nm = d.name;
-      massByMaterial[nm] = (massByMaterial[nm] || 0) + 1;
-      thermalEnergy += d.heatCap * (temp[i] - grid.ambient);
-      if (temp[i] > hottest.tempC) {
-        hottest = { x: i % grid.w, y: (i / grid.w) | 0, tempC: Math.round(temp[i]) };
+      _massScratch[id]++;
+      thermalEnergy += d.heatCap * (temp[i] - amb);
+      if (temp[i] > hotTempC) {
+        hotX = i % w; hotY = (i / w) | 0; hotTempC = Math.round(temp[i]);
       }
     }
+  }
+  // Build outputs once (same shape/keys the HUD + tests read).
+  const cellsByPhase = {
+    empty: _phaseCount[0], powder: _phaseCount[1], liquid: _phaseCount[2],
+    gas: _phaseCount[3], solid: _phaseCount[4],
+  };
+  const massByMaterial = {};
+  for (let id = 0; id < _massScratch.length; id++) {
+    const c = _massScratch[id];
+    if (c > 0) massByMaterial[MATERIALS[id].name] = c; // only materials present, as before
   }
   return {
     thermalEnergyJ: Math.round(thermalEnergy),
     cellsByPhase,
     massByMaterial,
-    hottest,
+    hottest: { x: hotX, y: hotY, tempC: hotTempC },
   };
 }
 
@@ -328,9 +351,21 @@ const FLUX = {
     publishState(); return overlay;
   },
   loadScenario(name) {
+    // Self-fence like reset()/reseed()/step(): freeze rAF around the grid
+    // mutation so a synchronous stateHash()/read taken immediately after the
+    // load observes the post-load state, never a frame that snuck in first.
+    // But DON'T strand the live animation: if we were running (the gallery-click
+    // path), resume via play() afterward. play() re-arms rAF for the NEXT frame
+    // (async), so a synchronous read right after this call still sees the frozen
+    // post-load state, while the on-screen sim keeps animating. In the harness
+    // rafFrozen is already true, so wasLive is false and behavior is unchanged.
+    const wasLive = !rafFrozen;
+    rafFrozen = true;
     const ok = loadScenario(name, grid, rng, { GRID_W, GRID_H });
     if (ok) { lastScenario = name; sim.tick = 0; }
-    publishState(); return ok;
+    publishState();
+    if (wasLive) this.play();
+    return ok;
   },
   scenarios() { return Object.keys(SCENARIOS); },
   cellAt(x, y) {
@@ -353,6 +388,8 @@ const FLUX = {
     return base + '#' + enc;
   },
   loadHash(hash) {
+    // Self-fence: freeze rAF before touching the grid (see loadScenario).
+    rafFrozen = true;
     const h = (hash || location.hash || '').replace(/^#/, '');
     const dec = decodeScene(h);
     if (dec && applyScene(grid, dec)) { rng.reseed(dec.seed); sim.tick = 0; lastScenario = 'shared'; publishState(); return true; }

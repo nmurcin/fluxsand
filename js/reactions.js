@@ -88,11 +88,18 @@ export class ReactionEngine {
   }
 
   // Try to react cell i (material actorId at x,y) with one of its neighbors.
-  // Returns 1 if a reaction fired, else 0. `neighborsOf` returns [indices].
-  apply(grid, rng, x, y, i, actorId, neighborIdxs) {
+  // Returns 1 if a reaction fired, else 0. `neighborIdxs` holds the neighbor
+  // cell indices; `nLen` (optional) is how many entries are valid — the caller
+  // passes a reused scratch buffer whose tail may be stale, so we read only
+  // [0, nLen). When nLen is omitted we fall back to the array's own length (so
+  // an ordinary array argument still works, e.g. tests). Reading the valid
+  // prefix is identical to the old nbuf.slice(0,n) copy — same indices, same
+  // order — so this is byte-identical while avoiding a per-cell allocation.
+  apply(grid, rng, x, y, i, actorId, neighborIdxs, nLen) {
     const rules = this.byActor.get(actorId);
     if (!rules) return 0;
     const aTempC = grid.temp[i];
+    const nn = nLen === undefined ? neighborIdxs.length : nLen;
 
     for (let ri = 0; ri < rules.length; ri++) {
       const r = rules[ri];
@@ -100,7 +107,7 @@ export class ReactionEngine {
       if (r.tempMax !== undefined && aTempC > r.tempMax) continue;
 
       // scan neighbors for a match (deterministic order = neighborIdxs order)
-      for (let k = 0; k < neighborIdxs.length; k++) {
+      for (let k = 0; k < nn; k++) {
         const j = neighborIdxs[k];
         const bDef = MATERIALS[grid.mat[j]];
         if (r.bId !== null) { if (bDef.id !== r.bId) continue; }
