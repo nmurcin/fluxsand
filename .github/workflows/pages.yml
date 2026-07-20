@@ -66,16 +66,33 @@ jobs:
       - name: Boot smoke (headless Chromium)
         run: |
           set -e
-          npx --yes playwright install --with-deps chromium
+          # Install the playwright NPM PACKAGE (so `import 'playwright'` resolves),
+          # THEN download the chromium browser binary. `npx playwright install`
+          # alone only fetches the browser, not the package — the boot script
+          # imports the package, so both are required. Install into RUNNER_TEMP so
+          # nothing lands in the repo / Pages artifact, and run the script from
+          # there so Node's module resolution finds node_modules/playwright.
+          cd "$RUNNER_TEMP"
+          npm init -y >/dev/null 2>&1
+          # Install the playwright package (unpinned = latest), then have that same
+          # installed version download its matching chromium build. Keeping both on
+          # the same version avoids a package/browser mismatch.
+          npm install playwright >/dev/null 2>&1
+          npx playwright install --with-deps chromium
           # Inline smoke script written to the RUNNER TEMP dir (never committed,
-          # never part of the Pages artifact).
+          # never part of the Pages artifact). It resolves the _site/ dir the
+          # test job assembled via an absolute path from GITHUB_WORKSPACE, since
+          # we cd'd into RUNNER_TEMP to get node_modules resolution.
           cat > "$RUNNER_TEMP/boot_smoke.mjs" <<'SMOKE'
           import { chromium } from 'playwright';
           import { createServer } from 'node:http';
           import { readFile } from 'node:fs/promises';
           import { extname, join, normalize } from 'node:path';
 
-          const ROOT = '_site';
+          // The test job assembled _site/ in the repo checkout (GITHUB_WORKSPACE);
+          // we run from RUNNER_TEMP (for node_modules resolution), so resolve _site
+          // as an absolute path off the workspace. Falls back to './_site' locally.
+          const ROOT = join(process.env.GITHUB_WORKSPACE || '.', '_site');
           const PORT = 8137;
           const TYPES = {
             '.html': 'text/html; charset=utf-8',
