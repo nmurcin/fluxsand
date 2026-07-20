@@ -64,6 +64,9 @@ export const M = {
   WATER_SPOUT: 40,
   LAVA_SPOUT: 41,
   SAND_SOURCE: 42,
+  // --- electricity roster ---
+  COPPER: 43,
+  LIVE_WIRE: 44,
 };
 
 // color: base RGB [r,g,b] at "cool" temperature.
@@ -339,6 +342,37 @@ export const MATERIALS = [
   // adjacent EMPTY cell (a continuous sand faucet the player can place).
   { id: 42, name: 'sand_source', phase: PHASE.SOLID, color: [150, 110, 60], density: 80,
     conduct: 0.22, heatCap: 0.8, static: true, glow: 0 },
+
+  // ====================== ELECTRICITY ==================================
+  // Reactions for these live in reaction_rules.js. Copper carries a real
+  // CURRENT: a spark energizes copper into live_wire, and live_wire races
+  // down adjacent copper (chance-gated + short-lived so it can't fill the
+  // grid). Flowing current warms the wire toward its melt point.
+
+  // 43 COPPER — a solid conductor wire the player builds circuits from. Real
+  // copper conducts even better than steel, so conduct 0.95 (> metal's 0.92);
+  // heatCap 0.45 keeps it safely inside the DT_CLAMP envelope like metal (0.5),
+  // so its high conductivity can't destabilize the explicit thermal solver.
+  // melt 1085C (real Cu m.p.) -> reuses molten_metal (no dedicated molten_copper
+  // needed). heatColor so it glows incandescent when a short-circuit heats it.
+  // A coppery brown [199,120,60] distinct from the incandescent orange ramp.
+  { id: 43, name: 'copper', phase: PHASE.SOLID, color: [199, 120, 60], density: 58,
+    conduct: 0.95, heatCap: 0.45, melt: 1085, latentMelt: 110, meltTo: () => M.MOLTEN_METAL,
+    heatColor: true, glow: 0 },
+
+  // 44 LIVE_WIRE — the ENERGIZED copper node: the visible pulse of current in the
+  // wire. A SOLID (stays in the wire, does NOT drift). Bright electric cyan-white
+  // [140,240,255], glow 0.9, heatColor FALSE so it keeps its electric-blue look
+  // instead of blending to fire-orange. lifetime 10: a pulse dwells in a cell then
+  // reverts to copper (decayTo copper), so the current is transient and the wire
+  // remains. baseTemp 320C: flowing current WARMS the copper (well below its 1085C
+  // melt so a bare wire won't melt itself) — a sustained/looping current can still
+  // drive a hotspot up toward melt via diffusion. ignitesNeighbors so a hot live
+  // wire can touch off adjacent fuel by contact (electrical ignition); baseTemp is
+  // low enough that this heats without self-destructing.
+  { id: 44, name: 'live_wire', phase: PHASE.SOLID, color: [140, 240, 255], density: 58,
+    conduct: 0.95, heatCap: 0.45, baseTemp: 320, glow: 0.9, heatColor: false,
+    lifetime: 10, ignitesNeighbors: true, decayTo: () => M.COPPER },
 ];
 
 // Fast lookup by name (used by tools/UI and scenarios).
@@ -366,6 +400,7 @@ export const PALETTE = [
   'liquid_nitrogen', 'gunpowder', 'thermite', 'spark', 'mercury', 'napalm', 'acid',
   'dry_ice', 'snow', 'coal', 'wax', 'concrete', 'plant',
   'fuse', 'tnt', 'water_spout', 'lava_spout', 'sand_source',
+  'copper', 'live_wire',
 ];
 
 export function matName(id) {

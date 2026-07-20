@@ -34,6 +34,7 @@ export function initUI(ctx) {
   const PALETTE_GROUPS = [
     { label: 'Basics', mats: ['sand', 'water', 'oil', 'lava', 'ice', 'wood', 'metal', 'stone'] },
     { label: 'Fire', mats: ['gasoline', 'fire', 'gunpowder', 'thermite', 'napalm', 'coal', 'spark'] },
+    { label: 'Electric', mats: ['copper', 'live_wire'] },
     { label: 'Cryo', mats: ['liquid_nitrogen', 'dry_ice', 'snow'] },
     { label: 'Chem', mats: ['mercury', 'acid', 'concrete'] },
     { label: 'Life', mats: ['plant', 'wax'] },
@@ -113,6 +114,16 @@ export function initUI(ctx) {
   // RubeGoldberg entry walks the chain reaction stage by stage. Kept here in the
   // UI layer so authoring physics (scenarios.js) stays free of presentation.
   const SCENARIO_INFO = {
+    Circuit: {
+      title: 'Circuit — current runs through copper',
+      steps: [
+        '1. A spark on the left pad energizes the copper wire.',
+        '2. The current (bright cyan) races down the copper…',
+        '3. …only through the wire, never through the air.',
+        '4. At the far end it arcs the gasoline pad alight.',
+      ],
+      hint: 'Build your own: paint copper, drop a spark. Click to dismiss.',
+    },
     RubeGoldberg: {
       title: 'Rube Goldberg — a chain reaction',
       steps: [

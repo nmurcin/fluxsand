@@ -624,6 +624,40 @@ export const SCENARIOS = {
     put(grid, fuseStart + 1, fuseY, M.SPARK);
   },
 
+  // CIRCUIT ------------------------------------------------------------------
+  // A hand-built electrical circuit: a SPARK on a left-edge pad energizes a long
+  // COPPER wire (spark+copper -> live_wire), the current races down the copper
+  // (live_wire+copper propagation), and at the far right the wire runs straight
+  // into a GASOLINE fuel pad sitting in a stone trough. When the live current
+  // reaches the pad it arcs the gasoline alight (live_wire+gasoline -> fire).
+  // Current flows ONLY through the copper, never through the air above it — the
+  // showcase for the electricity feature. A water-dipped branch on the way could
+  // short it (left as a build-your-own toy); the mainline reaches the fuel.
+  Circuit(grid, rng, d) {
+    const W = VW, H = VH;
+    grid.clear();
+
+    const floorTop = H - 12;
+    fill(grid, 0, floorTop, W - 1, H - 1, M.STONE);
+
+    // One long horizontal copper wire on an elevated stone shelf, left to right.
+    const wireY = 90;
+    const wireX0 = 24, wireX1 = 250;
+    fill(grid, wireX0, wireY + 2, wireX1 + 6, wireY + 4, M.STONE); // shelf under the wire
+    row(grid, wireX0, wireX1, wireY, M.COPPER);                    // the conductor
+
+    // Fuel pad in a stone trough at the wire's right end (the load the current lights).
+    const padX0 = wireX1 - 2, padX1 = wireX1 + 6;
+    col(grid, padX0 - 1, wireY - 4, wireY + 1, M.STONE);          // trough left wall
+    col(grid, padX1 + 1, wireY - 4, wireY + 1, M.STONE);          // trough right wall
+    fill(grid, padX0, wireY - 3, padX1, wireY - 1, M.GASOLINE);   // gasoline pad on the wire end
+
+    // The igniter: a spark on the wire's left-edge pad energizes the copper.
+    put(grid, wireX0, wireY, M.SPARK);
+    put(grid, wireX0 + 1, wireY, M.SPARK);
+    if (rng.chance(0.5)) put(grid, wireX0, wireY - 1, M.SPARK);
+  },
+
   // EMPTY --------------------------------------------------------------------
   // A clean sandbox: just a stone floor to build on.
   Empty(grid, rng, d) {

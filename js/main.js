@@ -14,6 +14,7 @@ import { initUI } from './tools.js';
 import { encodeScene, decodeScene, applyScene } from './share.js';
 import { AudioEngine } from './audio.js';
 import { Particles } from './particles.js';
+import { Effects } from './effects.js';
 
 export const GRID_W = 400;
 export const GRID_H = 250;
@@ -40,6 +41,13 @@ let muted = false;
 // live === !rafFrozen. See js/particles.js.
 const particles = new Particles(512, canvas.width / grid.w);
 renderer.particles = particles;
+
+// DISPLAY-ONLY post-process layer (blackbody bloom + heat shimmer). Same
+// determinism firewall as particles: only applied on the live rAF frame
+// (renderer.draw(true, phase)), never while rafFrozen, and never writes sim
+// state — so stateHash + visual.py baselines are untouched. See js/effects.js.
+const effects = new Effects(canvas, grid, canvas.width / grid.w);
+renderer.effects = effects;
 
 let paused = false;
 let overlay = 'normal';
@@ -138,6 +146,9 @@ function publishState() {
     changes: sim.lastChanges,
     reactions: sim.lastReactions,
     blasts: sim.lastBlasts,
+    // DISPLAY-ONLY effect toggles (bloom/shimmer). Not sim state; here so the
+    // HUD/harness can reflect the current toggle without a separate query.
+    effects: { bloom: effects.bloomOn, shimmer: effects.shimmerOn },
     // Live thermal-overlay range (deg C) so the on-screen legend can label the
     // color bar. Only meaningful in thermal mode; harmless otherwise.
     thermalRange: renderer.getThermalRange
@@ -254,7 +265,11 @@ function frame(now) {
     // the frozen path — and draw(true) below is the ONLY path that applies the
     // shake offset + draws particles, so baselines cannot drift.
     particles.update(window.__STATE__, dt);
-    renderer.draw(true); // live: apply shake + draw particles on top
+    // live: apply shake + particles + post-process (bloom/shimmer). `now` is the
+    // rAF wall-clock timestamp used ONLY for shimmer animation (never sim.tick /
+    // seeded rng), so determinism is untouched. On the frozen path draw() is
+    // called with defaults (live=false, phase=0) and effects are skipped.
+    renderer.draw(true, now);
     // DISPLAY-ONLY audio (same firewall). Ticked ONLY here, only when unmuted.
     if (!muted) audioEngine.tick(window.__STATE__);
     requestAnimationFrame(frame);
@@ -332,6 +347,14 @@ const FLUX = {
   // touches no sim state. Returns the new muted flag.
   setMuted(m) { muted = !!m; audioEngine.setMuted(muted); publishState(); return muted; },
   isMuted() { return muted; },
+  // ---- DISPLAY-ONLY effect toggles (bloom / shimmer) ----------------------
+  // Toggle the post-process layers. Presentation-only: they gate whether the
+  // live draw path applies bloom/shimmer and never touch sim state, so a bot can
+  // flip them without affecting stateHash. Returns the new flag. The state is
+  // mirrored into __STATE__.effects so the harness + HUD can read it.
+  setBloom(on) { effects.setBloom(on); publishState(); return effects.bloomOn; },
+  setShimmer(on) { effects.setShimmer(on); publishState(); return effects.shimmerOn; },
+  effectsState() { return { bloom: effects.bloomOn, shimmer: effects.shimmerOn }; },
   // deterministic stepping: freeze rAF, advance exactly n ticks, redraw once
   step(n = 1) {
     rafFrozen = true;

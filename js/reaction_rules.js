@@ -143,4 +143,39 @@ export const REACTION_RULES = [
     desc: 'lava vent: emits lava into adjacent empty space' },
   { a: 'sand_source', b: 'empty', chance: 0.25, a_into: 'keep', b_into: 'sand',
     desc: 'sand hopper: emits sand into adjacent empty space' },
+
+  // ============ ELECTRICITY — current racing through copper ============
+  // These are APPENDED at the end so they never reorder the rng-draw sequence of
+  // any existing scenario (no existing scene contains copper/live_wire, and copper
+  // is a distinct id so the spark rules above never matched it). All actors here
+  // are 'spark'/'live_wire'/'copper', none of which are matched by the class rules
+  // (any_liquid/any_gas) above, so nothing pre-existing changes.
+
+  // IGNITION SOURCE: a spark energizes copper into a live_wire pulse (the spark
+  // tool, or a thermite/gunpowder spark, kicks off a circuit). The spark is spent.
+  // Placed here (after spark+metal above) so a spark still prefers to arc along a
+  // steel wire when touching both; copper energizes when it's the neighbor.
+  { a: 'spark', b: 'copper', chance: 0.9, a_into: 'empty', b_into: 'live_wire',
+    desc: 'a spark energizes a copper wire into flowing current' },
+
+  // PROPAGATION (the core): current races down the wire — a live_wire node pushes
+  // the pulse into adjacent copper. chance 0.6 + live_wire's short lifetime (10)
+  // BOUND it so the pulse advances a wire cell at a time and can't fill the grid.
+  // Mirrors the fuse creep / spark arc pattern.
+  { a: 'live_wire', b: 'copper', chance: 0.6, a_into: 'keep', b_into: 'live_wire',
+    desc: 'current races down the copper wire (live pulse propagates)' },
+
+  // WATER SHORT: water shorts out a live wire (the pulse dies), like spark+water.
+  // The water survives (a firebreak / short-circuit that kills the current).
+  { a: 'live_wire', b: 'water', chance: 0.7, a_into: 'copper', b_into: 'keep',
+    desc: 'current shorts out and dies in water (the wire de-energizes)' },
+
+  // ELECTRICAL IGNITION: a hot live wire lights adjacent volatile fuel by arc.
+  // Kept at reasonable chances so a wire run through a fuel pad flashes it.
+  { a: 'live_wire', b: 'gasoline', chance: 0.8, a_into: 'keep', b_into: 'fire', b_temp: 820,
+    desc: 'a live wire arcs a gasoline slick alight' },
+  { a: 'live_wire', b: 'gunpowder', chance: 0.8, a_into: 'keep', b_into: 'fire', b_temp: 820,
+    desc: 'a live wire touches off gunpowder (electrical detonator)' },
+  { a: 'live_wire', b: 'oil', chance: 0.4, a_into: 'keep', b_into: 'fire', b_temp: 820,
+    desc: 'a sustained live wire arcs oil alight' },
 ];

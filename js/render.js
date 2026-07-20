@@ -125,6 +125,11 @@ export class Renderer {
     // js/particles.js for the full firewall note. Assigned by main.js.
     this.particles = null;
 
+    // DISPLAY-ONLY post-process (blackbody bloom + heat shimmer). Same firewall:
+    // only applied on the LIVE path (draw(true)) and never touches sim state, so
+    // stateHash + visual.py baselines are unaffected. Assigned by main.js.
+    this.effects = null;
+
     // Live thermal range (deg C) computed each thermal frame from the actual
     // scene. Published so the on-screen legend can label min/mid/max. Seeded
     // with the ambient so a cold/empty scene still shows a sane bar.
@@ -230,14 +235,17 @@ export class Renderer {
   // scene byte-for-byte as before — no offset, no particles — so visual
   // baselines and stateHash stay put. Defaults to false so any legacy/frozen
   // caller is inherently safe.
-  draw(live = false) {
+  draw(live = false, phase = 0) {
     // Presentation layer runs ONLY on live frames. Compute the shake offset up
     // front so both the ascii and chunky paths can ride it.
     let ox = 0, oy = 0;
     const P = (live && this.particles) ? this.particles : null;
     if (P) { const o = P.shakeOffset(); ox = o.x; oy = o.y; }
+    // Post-process effects also live-only. `phase` is a wall-clock ms value the
+    // live caller passes for shimmer animation; it is 0 on the frozen path.
+    const FX = (live && this.effects) ? this.effects : null;
 
-    if (this.mode === 'ascii') return this.drawAscii(ox, oy, P);
+    if (this.mode === 'ascii') { this.drawAscii(ox, oy, P); if (FX) FX.apply(phase, ox, oy); return; }
     const g = this.g;
     const data = this.img.data;
     const mat = g.mat, temp = g.temp;
@@ -319,6 +327,11 @@ export class Renderer {
     // Particles ride ON TOP of the (shaken) scene. LIVE-ONLY: P is null unless
     // draw() was called with live=true, so this is a no-op on the frozen path.
     if (P) P.draw(this.ctx, ox, oy);
+
+    // Post-process (bloom + shimmer) runs LAST, over the finished scene +
+    // particles. LIVE-ONLY: FX is null on the frozen path, so the harness/visual
+    // baselines see the un-post-processed blit exactly as before.
+    if (FX) FX.apply(phase, ox, oy);
   }
 
   _chunkyGlow(data) {
